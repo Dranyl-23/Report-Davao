@@ -1,5 +1,5 @@
-import { FormEvent, useState } from "react";
-import { Camera, LocateFixed, MapPin, Send } from "lucide-react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { Camera, LocateFixed, MapPin, Send, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   davaoRegionAreas,
@@ -9,6 +9,7 @@ import {
 import { LocationPreviewMap } from "../components/LocationPreviewMap";
 import { createReport } from "../lib/reports";
 import { useAuth } from "../lib/auth";
+import { uploadReportImage, validateReportImage } from "../lib/cloudinary";
 import type { ReportCategory } from "../types/report";
 
 const excellentGpsAccuracyMeters = 25;
@@ -43,9 +44,19 @@ export function SubmitReportPage() {
   const [coordinates, setCoordinates] = useState(defaultDavaoCoordinates);
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [hasPinnedLocation, setHasPinnedLocation] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+    };
+  }, [imagePreviewUrl]);
 
   function handleLocationPicked(
     nextCoordinates: { lat: number; lng: number },
@@ -62,10 +73,44 @@ export function SubmitReportPage() {
     setHasPinnedLocation(true);
     setMessage(
       source === "gps"
-        ? `Best GPS location captured. Estimated accuracy is ±${formatAccuracy(accuracyMeters)}. You can click the map to fine tune.`
+        ? `Best GPS location captured. Estimated accuracy is +/-${formatAccuracy(accuracyMeters)}. You can click the map to fine tune.`
         : "Report pin updated from the map.",
     );
     return true;
+  }
+
+  function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    const validationMessage = validateReportImage(file);
+
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
+
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+
+    setImageFile(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+    setMessage("Photo attached. It will upload when you submit the report.");
+  }
+
+  function removePhoto() {
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+
+    setImageFile(null);
+    setImagePreviewUrl("");
+    setMessage("Photo removed.");
   }
 
   function handleUseGps() {
@@ -126,7 +171,7 @@ export function SubmitReportPage() {
           setCoordinates(nextCoordinates);
           setLocationAccuracy(position.coords.accuracy);
           setHasPinnedLocation(true);
-          setMessage(`Improving GPS accuracy... best so far is ±${formatAccuracy(position.coords.accuracy)}.`);
+          setMessage(`Improving GPS accuracy... best so far is +/-${formatAccuracy(position.coords.accuracy)}.`);
         }
 
         if (position.coords.accuracy <= excellentGpsAccuracyMeters) {
@@ -178,6 +223,13 @@ export function SubmitReportPage() {
     setMessage("");
 
     try {
+      let uploadedImage: { imageUrl: string; imagePublicId: string } | null = null;
+
+      if (imageFile) {
+        setMessage("Uploading photo to Cloudinary...");
+        uploadedImage = await uploadReportImage(imageFile);
+      }
+
       await createReport({
         title: trimmedTitle,
         category,
@@ -185,6 +237,8 @@ export function SubmitReportPage() {
         barangay: selectedArea,
         coordinates,
         createdBy: user.uid,
+        imageUrl: uploadedImage?.imageUrl,
+        imagePublicId: uploadedImage?.imagePublicId,
       });
       navigate("/");
     } catch (error) {
@@ -254,15 +308,19 @@ export function SubmitReportPage() {
           </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-civic-line bg-civic-field px-4 text-sm font-semibold text-civic-ink opacity-70"
-              disabled
-              title="Firebase Storage requires a project upgrade. Add this after storage is available."
+            <label
+              className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-lg border border-civic-line bg-civic-field px-4 text-sm font-semibold text-civic-ink hover:bg-white"
+              title="Attach a JPG, PNG, or WebP photo up to 5 MB."
             >
+              <input
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={handlePhotoChange}
+                type="file"
+              />
               <Camera size={18} aria-hidden="true" />
-              Upload Photo
-            </button>
+              {imageFile ? "Change Photo" : "Upload Photo"}
+            </label>
             <button
               type="button"
               className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-civic-line bg-civic-field px-4 text-sm font-semibold text-civic-ink"
@@ -281,7 +339,7 @@ export function SubmitReportPage() {
           >
             {hasPinnedLocation
               ? `Pinned at Lat ${coordinates.lat.toFixed(5)}, Lng ${coordinates.lng.toFixed(5)} ${
-                  locationAccuracy !== null ? `(accuracy ±${formatAccuracy(locationAccuracy)})` : "(manual pin)"
+                  locationAccuracy !== null ? `(accuracy +/-${formatAccuracy(locationAccuracy)})` : "(manual pin)"
                 }`
               : "Location pin required before submission."}
           </div>
@@ -323,7 +381,25 @@ export function SubmitReportPage() {
 
           <div className="rounded-lg border border-dashed border-civic-line bg-civic-field p-5">
             <div className="flex aspect-video items-center justify-center rounded-lg bg-white text-sm font-semibold text-slate-500">
-              Photo upload pending
+              {imagePreviewUrl ? (
+                <div className="relative h-full w-full">
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Selected report evidence"
+                    className="h-full w-full rounded-lg object-cover"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-civic-ink shadow-sm hover:bg-red-50 hover:text-civic-red"
+                    onClick={removePhoto}
+                    aria-label="Remove selected photo"
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </div>
+              ) : (
+                "Photo upload optional"
+              )}
             </div>
             <div className="mt-4 space-y-3">
               <h3 className="text-lg font-bold text-civic-ink">{title || "Report title"}</h3>

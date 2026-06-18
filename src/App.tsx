@@ -4,6 +4,7 @@ import { RequireAuth } from "./components/RequireAuth";
 import { AdminPage } from "./pages/AdminPage";
 import { AuthPage } from "./pages/AuthPage";
 import { MyReportsPage } from "./pages/MyReportsPage";
+import { ReportDetailPage } from "./pages/ReportDetailPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { StatsPage } from "./pages/StatsPage";
 import { SubmitReportPage } from "./pages/SubmitReportPage";
@@ -30,6 +31,7 @@ export default function App() {
             </RequireAuth>
           }
         />
+        <Route path="reports/:reportId" element={<ReportDetailPage />} />
         <Route
           path="admin"
           element={

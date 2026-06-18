@@ -24,6 +24,7 @@ export interface CivicReport {
   createdAt: string;
   createdBy?: string;
   imageUrl?: string;
+  imagePublicId?: string;
 }
 
 export interface NewCivicReport {
@@ -36,4 +37,17 @@ export interface NewCivicReport {
     lng: number;
   };
   createdBy: string;
+  imageUrl?: string;
+  imagePublicId?: string;
+}
+
+export interface EditableCivicReport {
+  title: string;
+  category: ReportCategory;
+  description: string;
+  barangay: string;
+  coordinates: {
+    lat: number;
+    lng: number;
+  };
 }

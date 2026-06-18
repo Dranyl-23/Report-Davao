@@ -21,7 +21,8 @@ interface LocationPreviewMapProps {
   coordinates: Coordinates;
   accuracyMeters: number | null;
   hasPinnedLocation: boolean;
-  onLocationPicked: (coordinates: Coordinates) => void;
+  onLocationPicked?: (coordinates: Coordinates) => void;
+  readOnly?: boolean;
 }
 
 type PreviewMapLayer = "street" | "satellite" | "terrain";
@@ -63,9 +64,16 @@ function SyncMapView({ coordinates, hasPinnedLocation }: Pick<LocationPreviewMap
   return null;
 }
 
-function PickReportLocation({ onLocationPicked }: Pick<LocationPreviewMapProps, "onLocationPicked">) {
+function PickReportLocation({
+  onLocationPicked,
+  readOnly = false,
+}: Pick<LocationPreviewMapProps, "onLocationPicked" | "readOnly">) {
   useMapEvents({
     click(event) {
+      if (readOnly || !onLocationPicked) {
+        return;
+      }
+
       onLocationPicked({
         lat: event.latlng.lat,
         lng: event.latlng.lng,
@@ -81,6 +89,7 @@ export function LocationPreviewMap({
   coordinates,
   hasPinnedLocation,
   onLocationPicked,
+  readOnly = false,
 }: LocationPreviewMapProps) {
   const [activeLayer, setActiveLayer] = useState<PreviewMapLayer>("satellite");
   const tileLayer = previewMapLayers[activeLayer];
@@ -99,7 +108,7 @@ export function LocationPreviewMap({
       >
         <TileLayer key={activeLayer} attribution={tileLayer.attribution} url={tileLayer.url} />
         <SyncMapView coordinates={coordinates} hasPinnedLocation={hasPinnedLocation} />
-        <PickReportLocation onLocationPicked={onLocationPicked} />
+        <PickReportLocation onLocationPicked={onLocationPicked} readOnly={readOnly} />
         {hasPinnedLocation ? (
           <>
             {shouldShowAccuracyCircle ? (
@@ -150,6 +159,10 @@ export function LocationPreviewMap({
       {!hasPinnedLocation ? (
         <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-[500] rounded-lg border border-civic-line bg-white/95 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
           Use GPS or click the map to place the report pin.
+        </div>
+      ) : readOnly ? (
+        <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-[500] rounded-lg border border-civic-line bg-white/95 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
+          Report pin location
         </div>
       ) : null}
     </div>

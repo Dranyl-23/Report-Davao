@@ -8,9 +8,11 @@
 - Firestore rules validate report fields before accepting writes.
 - Citizens can only create reports as themselves.
 - Citizens can confirm other users' reports once.
+- Citizens can edit or delete their own reports only while the report is still `submitted`.
 - Report status updates are admin-only.
 - Public report reads are allowed for the transparency map/stats, but reports must not store private contact details.
-- Storage upload rules are prepared, but photo upload is disabled until Firebase Storage is available.
+- Photo upload currently uses Cloudinary unsigned uploads for MVP evidence images.
+- Storage upload rules are prepared, but Firebase Storage upload is paused until Firebase Storage is available.
 
 ## Firestore Collections
 
@@ -42,8 +44,22 @@ Allowed citizen-created fields:
 - `createdBy`
 - `createdAt`
 - `updatedAt`
+- `imageUrl`
+- `imagePublicId`
 
 Status must start as `submitted`.
+
+Citizen edits are limited to:
+
+- `title`
+- `category`
+- `description`
+- `barangay`
+- `latitude`
+- `longitude`
+- `updatedAt`
+
+Once a report moves to `under-review`, `in-progress`, or `resolved`, citizens can no longer edit or delete it.
 
 ### `statusLogs/{logId}`
 
@@ -90,4 +106,5 @@ For a class demo, using Firebase Console is fine:
 - API keys in Firebase web apps are not secrets; security depends on Auth, rules, and allowed domains.
 - The app does not publicly expose emails, phone numbers, or user contact details in reports.
 - Photos should be moderated later because they may contain faces, house numbers, or license plates.
+- Cloudinary unsigned upload presets should be locked down by file type, size, and folder. Rotate the preset if it is exposed or abused.
 - Admin role assignment should be controlled manually during MVP/pilot stage.

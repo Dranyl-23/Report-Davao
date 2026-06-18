@@ -106,7 +106,9 @@ service cloud.firestore {
           "upvotes",
           "createdBy",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "imageUrl",
+          "imagePublicId"
         ])
         && request.resource.data.title is string
         && request.resource.data.title.size() >= 5
@@ -121,7 +123,23 @@ service cloud.firestore {
         && request.resource.data.status == "submitted"
         && request.resource.data.upvotes == 0
         && request.resource.data.createdBy == request.auth.uid
+        && validOptionalString(request.resource.data.imageUrl, 1000)
+        && validOptionalString(request.resource.data.imagePublicId, 255)
         && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validReportEditableFields() {
+      return request.resource.data.title is string
+        && request.resource.data.title.size() >= 5
+        && request.resource.data.title.size() <= 120
+        && validCategory(request.resource.data.category)
+        && request.resource.data.description is string
+        && request.resource.data.description.size() >= 10
+        && request.resource.data.description.size() <= 800
+        && request.resource.data.barangay is string
+        && validDavaoRegionArea(request.resource.data.barangay)
+        && validDavaoCoordinates(request.resource.data.latitude, request.resource.data.longitude)
         && request.resource.data.updatedAt == request.time;
     }
 
@@ -152,8 +170,24 @@ service cloud.firestore {
           "updatedAt"
         ])
         && validStatus(request.resource.data.status)
-        && request.resource.data.updatedAt == request.time;
-      allow delete: if isAdmin();
+        && request.resource.data.updatedAt == request.time
+        || (signedIn()
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.status == "submitted"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "title",
+            "category",
+            "description",
+            "barangay",
+            "latitude",
+            "longitude",
+            "updatedAt"
+          ])
+          && validReportEditableFields());
+      allow delete: if isAdmin()
+        || (signedIn()
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.status == "submitted");
     }
 
     match /statusLogs/{logId} {

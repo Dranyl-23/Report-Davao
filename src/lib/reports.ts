@@ -2,6 +2,7 @@ import {
   Timestamp,
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   onSnapshot,
@@ -12,7 +13,13 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { CivicReport, NewCivicReport, ReportCategory, ReportStatus } from "../types/report";
+import type {
+  CivicReport,
+  EditableCivicReport,
+  NewCivicReport,
+  ReportCategory,
+  ReportStatus,
+} from "../types/report";
 
 interface FirestoreReport {
   title?: string;
@@ -26,6 +33,7 @@ interface FirestoreReport {
   createdAt?: Timestamp;
   createdBy?: string;
   imageUrl?: string;
+  imagePublicId?: string;
 }
 
 export interface ReportConfirmation {
@@ -60,6 +68,7 @@ function toCivicReport(id: string, data: FirestoreReport): CivicReport {
     createdAt: data.createdAt?.toDate().toISOString() ?? new Date().toISOString(),
     createdBy: data.createdBy,
     imageUrl: data.imageUrl,
+    imagePublicId: data.imagePublicId,
   };
 }
 
@@ -114,7 +123,7 @@ export function listenToConfirmations(
 }
 
 export async function createReport(report: NewCivicReport) {
-  await addDoc(reportsCollection, {
+  const reportData: Record<string, unknown> = {
     title: report.title.trim(),
     category: report.category,
     description: report.description.trim(),
@@ -126,7 +135,17 @@ export async function createReport(report: NewCivicReport) {
     createdBy: report.createdBy,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  };
+
+  if (report.imageUrl) {
+    reportData.imageUrl = report.imageUrl;
+  }
+
+  if (report.imagePublicId) {
+    reportData.imagePublicId = report.imagePublicId;
+  }
+
+  await addDoc(reportsCollection, reportData);
 }
 
 export async function confirmReport(reportId: string, userId: string) {
@@ -142,6 +161,22 @@ export async function confirmReport(reportId: string, userId: string) {
     userId,
     createdAt: serverTimestamp(),
   });
+}
+
+export async function updateCitizenReport(reportId: string, report: EditableCivicReport) {
+  await updateDoc(doc(db, "reports", reportId), {
+    title: report.title.trim(),
+    category: report.category,
+    description: report.description.trim(),
+    barangay: report.barangay.trim(),
+    latitude: report.coordinates.lat,
+    longitude: report.coordinates.lng,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteCitizenReport(reportId: string) {
+  await deleteDoc(doc(db, "reports", reportId));
 }
 
 export async function updateReportStatus(reportId: string, status: ReportStatus) {

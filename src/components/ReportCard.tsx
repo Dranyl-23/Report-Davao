@@ -1,4 +1,5 @@
 import { CheckCircle2, MapPin, ThumbsUp } from "lucide-react";
+import { Link } from "react-router-dom";
 import type { CivicReport } from "../types/report";
 import { StatusBadge } from "./StatusBadge";
 
@@ -42,10 +43,21 @@ export function ReportCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase text-slate-500">{report.id}</p>
-          <h2 className="mt-1 text-base font-bold text-civic-ink">{report.title}</h2>
+          <Link
+            to={`/reports/${report.id}`}
+            className="mt-1 block text-base font-bold text-civic-ink hover:text-civic-green"
+          >
+            {report.title}
+          </Link>
         </div>
         <StatusBadge status={report.status} />
       </div>
+
+      {report.imageUrl ? (
+        <Link to={`/reports/${report.id}`} className="mt-3 block overflow-hidden rounded-lg border border-civic-line">
+          <img src={report.imageUrl} alt={`Evidence for ${report.title}`} className="h-40 w-full object-cover" />
+        </Link>
+      ) : null}
 
       <p className="mt-2 text-sm leading-6 text-slate-600">{report.description}</p>
 
@@ -64,19 +76,27 @@ export function ReportCard({
           <p className="text-xs font-semibold text-slate-500">
             Confirm if you also saw this issue in the area.
           </p>
-          <button
-            type="button"
-            className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-              confirmed
-                ? "bg-emerald-50 text-civic-green"
-                : "bg-civic-green text-white hover:bg-emerald-800"
-            }`}
-            disabled={confirmDisabled || confirmed || confirmLoading}
-            onClick={() => onConfirm?.(report.id)}
-          >
-            {confirmed ? <CheckCircle2 size={17} aria-hidden="true" /> : <ThumbsUp size={17} aria-hidden="true" />}
-            {confirmLoading ? "Confirming..." : confirmed ? "Confirmed" : "Confirm"}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Link
+              to={`/reports/${report.id}`}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-civic-line bg-civic-field px-3 text-sm font-bold text-civic-ink hover:bg-white"
+            >
+              View Details
+            </Link>
+            <button
+              type="button"
+              className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                confirmed
+                  ? "bg-emerald-50 text-civic-green"
+                  : "bg-civic-green text-white hover:bg-emerald-800"
+              }`}
+              disabled={confirmDisabled || confirmed || confirmLoading}
+              onClick={() => onConfirm?.(report.id)}
+            >
+              {confirmed ? <CheckCircle2 size={17} aria-hidden="true" /> : <ThumbsUp size={17} aria-hidden="true" />}
+              {confirmLoading ? "Confirming..." : confirmed ? "Confirmed" : "Confirm"}
+            </button>
+          </div>
         </div>
       ) : null}
     </article>
