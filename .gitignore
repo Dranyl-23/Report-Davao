@@ -1,0 +1,9 @@
+node_modules
+dist
+tmp
+.env
+.env.local
+Report-Davao/
+.DS_Store
+*.log
+*.tsbuildinfo

@@ -1,0 +1,209 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userProfilePath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(userProfilePath(request.auth.uid))
+        && get(userProfilePath(request.auth.uid)).data.role == "admin";
+    }
+
+    function validOptionalString(value, maxLength) {
+      return value == null || (value is string && value.size() <= maxLength);
+    }
+
+    function validProfile(uid) {
+      return request.resource.data.keys().hasAll([
+          "uid",
+          "email",
+          "displayName",
+          "role",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.keys().hasOnly([
+          "uid",
+          "email",
+          "displayName",
+          "role",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.role == "citizen"
+        && validOptionalString(request.resource.data.email, 254)
+        && validOptionalString(request.resource.data.displayName, 80)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validStatus(status) {
+      return status in ["submitted", "under-review", "in-progress", "resolved"];
+    }
+
+    function validCategory(category) {
+      return category in [
+        "pothole",
+        "streetlight",
+        "flooding",
+        "garbage",
+        "drainage",
+        "illegal-dumping",
+        "other"
+      ];
+    }
+
+    function validDavaoRegionArea(area) {
+      return area in [
+        "Davao City",
+        "Davao del Sur",
+        "Davao Occidental",
+        "Davao de Oro",
+        "Davao del Norte",
+        "Davao Oriental"
+      ];
+    }
+
+    function validDavaoCoordinates(latitude, longitude) {
+      return latitude is number
+        && latitude >= 5.2
+        && latitude <= 8.15
+        && longitude is number
+        && longitude >= 124.9
+        && longitude <= 126.75;
+    }
+
+    function validReportData() {
+      return request.resource.data.keys().hasAll([
+          "title",
+          "category",
+          "description",
+          "barangay",
+          "latitude",
+          "longitude",
+          "status",
+          "upvotes",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.keys().hasOnly([
+          "title",
+          "category",
+          "description",
+          "barangay",
+          "latitude",
+          "longitude",
+          "status",
+          "upvotes",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 5
+        && request.resource.data.title.size() <= 120
+        && validCategory(request.resource.data.category)
+        && request.resource.data.description is string
+        && request.resource.data.description.size() >= 10
+        && request.resource.data.description.size() <= 800
+        && request.resource.data.barangay is string
+        && validDavaoRegionArea(request.resource.data.barangay)
+        && validDavaoCoordinates(request.resource.data.latitude, request.resource.data.longitude)
+        && request.resource.data.status == "submitted"
+        && request.resource.data.upvotes == 0
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && validProfile(uid);
+      allow update: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "displayName",
+            "updatedAt"
+          ])
+          && validOptionalString(request.resource.data.displayName, 80)
+          && request.resource.data.updatedAt == request.time);
+      allow delete: if false;
+    }
+
+    match /reports/{reportId} {
+      allow read: if true;
+      allow create: if signedIn() && validReportData();
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "status",
+          "updatedAt"
+        ])
+        && validStatus(request.resource.data.status)
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isAdmin();
+    }
+
+    match /statusLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll([
+          "reportId",
+          "status",
+          "updatedBy",
+          "createdAt"
+        ])
+        && request.resource.data.keys().hasOnly([
+          "reportId",
+          "status",
+          "note",
+          "updatedBy",
+          "createdAt"
+        ])
+        && request.resource.data.reportId is string
+        && validStatus(request.resource.data.status)
+        && validOptionalString(request.resource.data.note, 500)
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /upvotes/{upvoteId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && upvoteId == request.resource.data.reportId + "_" + request.auth.uid
+        && request.resource.data.keys().hasAll([
+          "reportId",
+          "userId",
+          "createdAt"
+        ])
+        && request.resource.data.keys().hasOnly([
+          "reportId",
+          "userId",
+          "createdAt"
+        ])
+        && request.resource.data.reportId is string
+        && exists(/databases/$(database)/documents/reports/$(request.resource.data.reportId))
+        && get(/databases/$(database)/documents/reports/$(request.resource.data.reportId)).data.createdBy != request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,48 @@
+import type { CivicReport } from "../types/report";
+
+export const sampleReports: CivicReport[] = [
+  {
+    id: "RPT-001",
+    title: "Broken streetlight near crossing",
+    category: "streetlight",
+    description: "Streetlight has been off for several nights near the pedestrian crossing.",
+    status: "under-review",
+    barangay: "Buhangin",
+    coordinates: { lat: 7.1139, lng: 125.6131 },
+    upvotes: 18,
+    createdAt: "2026-06-15",
+  },
+  {
+    id: "RPT-002",
+    title: "Drainage overflow after rain",
+    category: "drainage",
+    description: "Water collects along the roadside and affects passing commuters.",
+    status: "in-progress",
+    barangay: "Matina",
+    coordinates: { lat: 7.0654, lng: 125.5981 },
+    upvotes: 34,
+    createdAt: "2026-06-13",
+  },
+  {
+    id: "RPT-003",
+    title: "Uncollected garbage pile",
+    category: "garbage",
+    description: "Garbage has not been collected and is blocking part of the sidewalk.",
+    status: "submitted",
+    barangay: "Agdao",
+    coordinates: { lat: 7.0926, lng: 125.6297 },
+    upvotes: 12,
+    createdAt: "2026-06-16",
+  },
+  {
+    id: "RPT-004",
+    title: "Pothole near school entrance",
+    category: "pothole",
+    description: "Large pothole creates traffic slowdown during morning drop-off.",
+    status: "resolved",
+    barangay: "Toril",
+    coordinates: { lat: 7.0183, lng: 125.4967 },
+    upvotes: 41,
+    createdAt: "2026-06-09",
+  },
+];
