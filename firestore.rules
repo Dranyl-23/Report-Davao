@@ -10,6 +10,14 @@ service cloud.firestore {
       return /databases/$(database)/documents/users/$(uid);
     }
 
+    function reportPath(reportId) {
+      return /databases/$(database)/documents/reports/$(reportId);
+    }
+
+    function upvotePath(reportId, uid) {
+      return /databases/$(database)/documents/upvotes/$(reportId + "_" + uid);
+    }
+
     function isAdmin() {
       return signedIn()
         && exists(userProfilePath(request.auth.uid))
@@ -18,6 +26,20 @@ service cloud.firestore {
 
     function validOptionalString(value, maxLength) {
       return value == null || (value is string && value.size() <= maxLength);
+    }
+
+    function validOptionalCloudinaryImageUrl(data) {
+      return !data.keys().hasAny(["imageUrl"])
+        || (data.imageUrl is string
+          && data.imageUrl.size() <= 1000
+          && data.imageUrl.matches("^https://res\\.cloudinary\\.com/dh0xm7zdj/image/upload/.*"));
+    }
+
+    function validOptionalCloudinaryPublicId(data) {
+      return !data.keys().hasAny(["imagePublicId"])
+        || (data.imagePublicId is string
+          && data.imagePublicId.size() <= 255
+          && data.imagePublicId.matches("^[A-Za-z0-9_./-]+$"));
     }
 
     function validProfile(uid) {
@@ -123,8 +145,8 @@ service cloud.firestore {
         && request.resource.data.status == "submitted"
         && request.resource.data.upvotes == 0
         && request.resource.data.createdBy == request.auth.uid
-        && validOptionalString(request.resource.data.imageUrl, 1000)
-        && validOptionalString(request.resource.data.imagePublicId, 255)
+        && validOptionalCloudinaryImageUrl(request.resource.data)
+        && validOptionalCloudinaryPublicId(request.resource.data)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
     }
@@ -140,6 +162,25 @@ service cloud.firestore {
         && request.resource.data.barangay is string
         && validDavaoRegionArea(request.resource.data.barangay)
         && validDavaoCoordinates(request.resource.data.latitude, request.resource.data.longitude)
+        && request.resource.data.updatedAt == request.time
+        // Immutable fields must remain unchanged (defense-in-depth alongside hasOnly diff check)
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.upvotes == resource.data.upvotes
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function validReportConfirmationCountUpdate(reportId) {
+      return signedIn()
+        && resource.data.createdBy != request.auth.uid
+        && !exists(upvotePath(reportId, request.auth.uid))
+        && getAfter(upvotePath(reportId, request.auth.uid)).data.reportId == reportId
+        && getAfter(upvotePath(reportId, request.auth.uid)).data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "upvotes",
+          "updatedAt"
+        ])
+        && request.resource.data.upvotes == resource.data.upvotes + 1
         && request.resource.data.updatedAt == request.time;
     }
 
@@ -164,13 +205,13 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow read: if true;
       allow create: if signedIn() && validReportData();
-      allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          "status",
-          "updatedAt"
-        ])
-        && validStatus(request.resource.data.status)
-        && request.resource.data.updatedAt == request.time
+      allow update: if (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "status",
+            "updatedAt"
+          ])
+          && validStatus(request.resource.data.status)
+          && request.resource.data.updatedAt == request.time)
         || (signedIn()
           && resource.data.createdBy == request.auth.uid
           && resource.data.status == "submitted"
@@ -183,7 +224,8 @@ service cloud.firestore {
             "longitude",
             "updatedAt"
           ])
-          && validReportEditableFields());
+          && validReportEditableFields())
+        || validReportConfirmationCountUpdate(reportId);
       allow delete: if isAdmin()
         || (signedIn()
           && resource.data.createdBy == request.auth.uid
@@ -215,7 +257,7 @@ service cloud.firestore {
     }
 
     match /upvotes/{upvoteId} {
-      allow read: if true;
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
       allow create: if signedIn()
         && upvoteId == request.resource.data.reportId + "_" + request.auth.uid
         && request.resource.data.keys().hasAll([
@@ -229,8 +271,10 @@ service cloud.firestore {
           "createdAt"
         ])
         && request.resource.data.reportId is string
-        && exists(/databases/$(database)/documents/reports/$(request.resource.data.reportId))
-        && get(/databases/$(database)/documents/reports/$(request.resource.data.reportId)).data.createdBy != request.auth.uid
+        && exists(reportPath(request.resource.data.reportId))
+        && get(reportPath(request.resource.data.reportId)).data.createdBy != request.auth.uid
+        && getAfter(reportPath(request.resource.data.reportId)).data.upvotes ==
+          get(reportPath(request.resource.data.reportId)).data.upvotes + 1
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.createdAt == request.time;
       allow update, delete: if false;

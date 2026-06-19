@@ -37,17 +37,20 @@ export async function uploadReportImage(file: File): Promise<UploadedReportImage
   const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
 
   if (!cloudName || !uploadPreset) {
-    throw new Error("Cloudinary upload is not configured. Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET.");
+    throw new Error(
+      "Cloudinary is not configured. Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET to .env.",
+    );
   }
 
   const formData = new FormData();
   formData.append("file", file);
   formData.append("upload_preset", uploadPreset);
 
-  const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-    method: "POST",
-    body: formData,
-  });
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+    { method: "POST", body: formData },
+  );
+
   const data = (await response.json()) as CloudinaryUploadResponse;
 
   if (!response.ok || !data.secure_url || !data.public_id) {

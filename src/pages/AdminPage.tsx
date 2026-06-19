@@ -26,6 +26,28 @@ export function AdminPage() {
     }
   }
 
+  function exportCsv() {
+    const headers = ["ID", "Title", "Category", "Area", "Status", "Confirmations", "Submitted"];
+    const rows = displayReports.map((r) => [
+      r.id,
+      `"${r.title.replace(/"/g, '""')}"`,
+      r.category,
+      r.barangay,
+      r.status,
+      String(r.upvotes),
+      new Date(r.createdAt).toLocaleString("en-PH"),
+    ]);
+
+    const csvContent = [headers, ...rows].map((row) => row.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `report-davao-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 rounded-lg border border-civic-line bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -38,7 +60,12 @@ export function AdminPage() {
             <p className="text-sm text-slate-600">Barangay/LGU report queue</p>
           </div>
         </div>
-        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-civic-line bg-civic-field px-4 text-sm font-semibold text-civic-ink">
+        <button
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-civic-line bg-civic-field px-4 text-sm font-semibold text-civic-ink hover:bg-white disabled:opacity-50"
+          disabled={usingSampleData || displayReports.length === 0}
+          onClick={exportCsv}
+          title={usingSampleData ? "Export is only available for real Firestore reports" : "Download all reports as CSV"}
+        >
           <Download size={18} aria-hidden="true" />
           Export CSV
         </button>

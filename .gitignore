@@ -7,3 +7,8 @@ Report-Davao/
 .DS_Store
 *.log
 *.tsbuildinfo
+
+# Firebase Functions
+functions/lib/
+functions/.env
+functions/.env.local

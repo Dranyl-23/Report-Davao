@@ -4,14 +4,16 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDoc,
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
-  setDoc,
   updateDoc,
+  where,
+  writeBatch,
 } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { db } from "./firebase";
 import type {
   CivicReport,
@@ -103,11 +105,14 @@ export function listenToReports(onReports: (reports: CivicReport[]) => void, onE
 }
 
 export function listenToConfirmations(
+  userId: string,
   onConfirmations: (confirmations: ReportConfirmation[]) => void,
   onError: (message: string) => void,
 ) {
+  const confirmationsQuery = query(confirmationsCollection, where("userId", "==", userId));
+
   return onSnapshot(
-    confirmationsCollection,
+    confirmationsQuery,
     (snapshot) => {
       const confirmations = snapshot.docs
         .map((confirmationDoc) =>
@@ -149,17 +154,38 @@ export async function createReport(report: NewCivicReport) {
 }
 
 export async function confirmReport(reportId: string, userId: string) {
+  const reportRef = doc(db, "reports", reportId);
   const confirmationRef = doc(db, "upvotes", `${reportId}_${userId}`);
-  const existingConfirmation = await getDoc(confirmationRef);
 
-  if (existingConfirmation.exists()) {
-    return;
-  }
+  await runTransaction(db, async (transaction) => {
+    const existingConfirmation = await transaction.get(confirmationRef);
 
-  await setDoc(confirmationRef, {
-    reportId,
-    userId,
-    createdAt: serverTimestamp(),
+    if (existingConfirmation.exists()) {
+      return;
+    }
+
+    const reportSnap = await transaction.get(reportRef);
+
+    if (!reportSnap.exists()) {
+      throw new Error("Report no longer exists.");
+    }
+
+    const reportData = reportSnap.data() as FirestoreReport;
+
+    if (reportData.createdBy === userId) {
+      throw new Error("You cannot confirm your own report.");
+    }
+
+    transaction.set(confirmationRef, {
+      reportId,
+      userId,
+      createdAt: serverTimestamp(),
+    });
+
+    transaction.update(reportRef, {
+      upvotes: (reportData.upvotes ?? 0) + 1,
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 
@@ -179,9 +205,30 @@ export async function deleteCitizenReport(reportId: string) {
   await deleteDoc(doc(db, "reports", reportId));
 }
 
-export async function updateReportStatus(reportId: string, status: ReportStatus) {
-  await updateDoc(doc(db, "reports", reportId), {
+export async function updateReportStatus(reportId: string, status: ReportStatus, note?: string) {
+  const currentUser = getAuth().currentUser;
+
+  if (!currentUser) {
+    throw new Error("You must be signed in to update a report status.");
+  }
+
+  const batch = writeBatch(db);
+
+  // Update the report status
+  batch.update(doc(db, "reports", reportId), {
     status,
     updatedAt: serverTimestamp(),
   });
+
+  // Atomically create an audit log entry in statusLogs
+  const logRef = doc(collection(db, "statusLogs"));
+  batch.set(logRef, {
+    reportId,
+    status,
+    ...(note ? { note } : {}),
+    updatedBy: currentUser.uid,
+    createdAt: serverTimestamp(),
+  });
+
+  await batch.commit();
 }

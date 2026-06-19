@@ -7,7 +7,7 @@
 - Admin pages require an authenticated user profile with `role: admin`.
 - Firestore rules validate report fields before accepting writes.
 - Citizens can only create reports as themselves.
-- Citizens can confirm other users' reports once.
+- Citizens can confirm other users' reports once, and confirmation docs are only readable by the confirming user.
 - Citizens can edit or delete their own reports only while the report is still `submitted`.
 - Report status updates are admin-only.
 - Public report reads are allowed for the transparency map/stats, but reports must not store private contact details.
@@ -76,6 +76,7 @@ Allowed citizen-created fields:
 - `createdAt`
 
 The document ID must be `{reportId}_{uid}` so each user can confirm a report only once. Users cannot confirm reports they created.
+Public confirmation totals are stored on `reports/{reportId}.upvotes`; individual confirmation records are not publicly listed.
 
 ## How To Promote An Admin
 

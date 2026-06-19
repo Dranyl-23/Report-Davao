@@ -9,7 +9,7 @@ interface RequireAuthProps {
 
 export function RequireAuth({ adminOnly = false, children }: RequireAuthProps) {
   const location = useLocation();
-  const { profile, user, loading } = useAuth();
+  const { profile, profileError, user, loading } = useAuth();
 
   if (loading) {
     return (
@@ -30,9 +30,23 @@ export function RequireAuth({ adminOnly = false, children }: RequireAuthProps) {
         <p className="mt-2 text-sm leading-6 text-slate-600">
           This area is reserved for verified barangay or LGU staff accounts.
         </p>
+        {profileError ? (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+            {profileError}
+          </p>
+        ) : null}
       </div>
     );
   }
 
-  return children;
+  return (
+    <>
+      {profileError ? (
+        <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+          {profileError}
+        </p>
+      ) : null}
+      {children}
+    </>
+  );
 }

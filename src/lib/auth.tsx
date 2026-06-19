@@ -24,6 +24,7 @@ export interface UserProfile {
 interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
+  profileError: string;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
@@ -40,49 +41,99 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileError, setProfileError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (nextUser) => {
       setUser(nextUser);
 
-      if (nextUser) {
-        const nextProfile = await ensureUserProfile(nextUser);
-        setProfile(nextProfile);
-      } else {
-        setProfile(null);
+      try {
+        if (nextUser) {
+          const nextProfile = await ensureUserProfile(nextUser);
+          setProfile(nextProfile);
+          setProfileError("");
+        } else {
+          setProfile(null);
+          setProfileError("");
+        }
+      } catch (error) {
+        if (nextUser) {
+          setProfile(getFallbackProfile(nextUser));
+          setProfileError(getProfileErrorMessage(error));
+        } else {
+          setProfile(null);
+          setProfileError("");
+        }
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     });
   }, []);
+
+  async function syncProfile(nextUser: User) {
+    try {
+      const nextProfile = await ensureUserProfile(nextUser);
+      setProfile(nextProfile);
+      setProfileError("");
+    } catch (error) {
+      setProfile(getFallbackProfile(nextUser));
+      setProfileError(getProfileErrorMessage(error));
+    }
+  }
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       profile,
+      profileError,
       loading,
       login: async (email, password) => {
         const credential = await signInWithEmailAndPassword(auth, email, password);
-        await ensureUserProfile(credential.user);
+        await syncProfile(credential.user);
       },
       register: async (email, password) => {
         const credential = await createUserWithEmailAndPassword(auth, email, password);
-        await ensureUserProfile(credential.user);
+        await syncProfile(credential.user);
       },
       loginWithGoogle: async () => {
         const provider = new GoogleAuthProvider();
         const credential = await signInWithPopup(auth, provider);
-        await ensureUserProfile(credential.user);
+        await syncProfile(credential.user);
       },
       logout: async () => {
         await signOut(auth);
+        setProfile(null);
+        setProfileError("");
       },
     }),
-    [loading, profile, user],
+    [loading, profile, profileError, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function getFallbackProfile(nextUser: User): UserProfile {
+  return {
+    uid: nextUser.uid,
+    email: nextUser.email,
+    displayName: nextUser.displayName,
+    role: "citizen",
+  };
+}
+
+function getProfileErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unable to load Firestore user profile.";
+
+  if (message.includes("Database") && message.includes("not found")) {
+    return "Signed in, but Firestore database is not available. Create/check the default Firestore database for this Firebase project, then refresh.";
+  }
+
+  if (message.includes("offline")) {
+    return "Signed in, but Firestore is unreachable right now. If your internet is working, check that the default Firestore database exists and rules are published.";
+  }
+
+  return `Signed in, but the Firestore user profile could not be loaded: ${message}`;
 }
 
 async function ensureUserProfile(nextUser: User): Promise<UserProfile> {

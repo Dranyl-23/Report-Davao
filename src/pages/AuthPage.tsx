@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Mail, ShieldCheck } from "lucide-react";
 import { useAuth } from "../lib/auth";
 
@@ -29,15 +29,24 @@ function friendlyAuthError(message: string) {
 
 export function AuthPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, loading, login, register, loginWithGoogle } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const locationState = location.state as
+    | { from?: { pathname?: string; search?: string; hash?: string } }
+    | null;
+  const from = locationState?.from;
+  const redirectTo =
+    from?.pathname && from.pathname !== "/auth"
+      ? `${from.pathname}${from.search ?? ""}${from.hash ?? ""}`
+      : "/";
 
   if (!loading && user) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={redirectTo} replace />;
   }
 
   async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
@@ -51,7 +60,7 @@ export function AuthPage() {
       } else {
         await register(email, password);
       }
-      navigate("/");
+      navigate(redirectTo, { replace: true });
     } catch (authError) {
       setError(friendlyAuthError(authError instanceof Error ? authError.message : "Authentication failed."));
     } finally {
@@ -65,7 +74,7 @@ export function AuthPage() {
 
     try {
       await loginWithGoogle();
-      navigate("/");
+      navigate(redirectTo, { replace: true });
     } catch (authError) {
       setError(friendlyAuthError(authError instanceof Error ? authError.message : "Google sign-in failed."));
     } finally {

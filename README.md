@@ -6,7 +6,8 @@ Community-driven civic issue reporting platform for Davao residents and LGU/bara
 
 - React + TypeScript + Vite
 - Tailwind CSS
-- Firebase Auth, Firestore, and Storage
+- Firebase Auth and Firestore
+- Cloudinary for MVP evidence photo uploads
 - Leaflet + OpenStreetMap
 - React Router
 
@@ -53,6 +54,7 @@ Create an unsigned upload preset in Cloudinary, then set these env vars locally 
 - `VITE_CLOUDINARY_UPLOAD_PRESET`
 
 The app uploads the image to Cloudinary and stores the returned `imageUrl` in Firestore.
+Keep the Cloudinary API secret and `CLOUDINARY_URL` out of frontend env files.
 
 Until the first Firestore report is submitted, the dashboard shows sample reports for demo continuity.
 

@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { Camera, LocateFixed, MapPin, Send, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -50,6 +50,16 @@ export function SubmitReportPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
 
+  // Track GPS resources for cleanup on unmount
+  const gpsCleanupRef = useRef<{ watchId: number | null; timeoutId: number | null }>({
+    watchId: null,
+    timeoutId: null,
+  });
+
+  // Track last successful submission time for rate limiting
+  const lastSubmitRef = useRef<number | null>(null);
+  const SUBMIT_COOLDOWN_MS = 30_000;
+
   useEffect(() => {
     return () => {
       if (imagePreviewUrl) {
@@ -57,6 +67,15 @@ export function SubmitReportPage() {
       }
     };
   }, [imagePreviewUrl]);
+
+  // Clean up GPS watcher and timeout if the component unmounts mid-search
+  useEffect(() => {
+    return () => {
+      const { watchId, timeoutId } = gpsCleanupRef.current;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, []);
 
   function handleLocationPicked(
     nextCoordinates: { lat: number; lng: number },
@@ -152,8 +171,9 @@ export function SubmitReportPage() {
     const searchTimeout = window.setTimeout(() => {
       finishGpsSearch(bestPosition);
     }, gpsSearchTimeoutMs);
+    gpsCleanupRef.current.timeoutId = searchTimeout;
 
-    watchId = navigator.geolocation.watchPosition(
+    const newWatchId = navigator.geolocation.watchPosition(
       (position) => {
         if (finished) {
           return;
@@ -190,6 +210,7 @@ export function SubmitReportPage() {
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: gpsSearchTimeoutMs },
     );
+    gpsCleanupRef.current.watchId = newWatchId;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -201,6 +222,14 @@ export function SubmitReportPage() {
 
     if (!user) {
       setMessage("Please sign in first.");
+      return;
+    }
+
+    // Rate limiting: prevent submitting more than once every 30 seconds
+    const now = Date.now();
+    if (lastSubmitRef.current !== null && now - lastSubmitRef.current < SUBMIT_COOLDOWN_MS) {
+      const remainingSeconds = Math.ceil((SUBMIT_COOLDOWN_MS - (now - lastSubmitRef.current)) / 1000);
+      setMessage(`Please wait ${remainingSeconds} second${remainingSeconds !== 1 ? "s" : ""} before submitting another report.`);
       return;
     }
 
@@ -240,6 +269,7 @@ export function SubmitReportPage() {
         imageUrl: uploadedImage?.imageUrl,
         imagePublicId: uploadedImage?.imagePublicId,
       });
+      lastSubmitRef.current = Date.now();
       navigate("/");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Report submission failed.");
