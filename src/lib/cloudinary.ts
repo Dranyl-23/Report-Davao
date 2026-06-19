@@ -9,10 +9,12 @@ interface CloudinaryUploadResponse {
   };
 }
 
-export interface UploadedReportImage {
+export interface UploadedImage {
   imageUrl: string;
   imagePublicId: string;
 }
+
+export type UploadedReportImage = UploadedImage;
 
 export function validateReportImage(file: File) {
   if (!allowedImageTypes.includes(file.type)) {
@@ -26,7 +28,7 @@ export function validateReportImage(file: File) {
   return "";
 }
 
-export async function uploadReportImage(file: File): Promise<UploadedReportImage> {
+export async function uploadImageToCloudinary(file: File): Promise<UploadedImage> {
   const validationMessage = validateReportImage(file);
 
   if (validationMessage) {
@@ -61,4 +63,12 @@ export async function uploadReportImage(file: File): Promise<UploadedReportImage
     imageUrl: data.secure_url,
     imagePublicId: data.public_id,
   };
+}
+
+export async function uploadReportImage(file: File): Promise<UploadedReportImage> {
+  return uploadImageToCloudinary(file);
+}
+
+export async function uploadProfileImage(file: File): Promise<UploadedImage> {
+  return uploadImageToCloudinary(file);
 }

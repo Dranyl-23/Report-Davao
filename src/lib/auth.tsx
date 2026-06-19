@@ -6,8 +6,9 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile as updateFirebaseProfile,
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { auth } from "./firebase";
 import { db } from "./firebase";
@@ -19,6 +20,8 @@ export interface UserProfile {
   email: string | null;
   displayName: string | null;
   role: UserRole;
+  photoUrl?: string;
+  photoPublicId?: string;
 }
 
 interface AuthContextValue {
@@ -29,6 +32,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
+  updateProfilePhoto: (photoUrl: string, photoPublicId: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -101,6 +105,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const credential = await signInWithPopup(auth, provider);
         await syncProfile(credential.user);
       },
+      updateProfilePhoto: async (photoUrl, photoPublicId) => {
+        if (!auth.currentUser) {
+          throw new Error("Please sign in first.");
+        }
+
+        await updateFirebaseProfile(auth.currentUser, { photoURL: photoUrl });
+        await updateDoc(doc(db, "users", auth.currentUser.uid), {
+          photoUrl,
+          photoPublicId,
+          updatedAt: serverTimestamp(),
+        });
+
+        setUser(auth.currentUser);
+        setProfile((currentProfile) => {
+          const baseProfile = currentProfile ?? getFallbackProfile(auth.currentUser as User);
+
+          return {
+            ...baseProfile,
+            photoUrl,
+            photoPublicId,
+          };
+        });
+      },
       logout: async () => {
         await signOut(auth);
         setProfile(null);
@@ -119,6 +146,7 @@ function getFallbackProfile(nextUser: User): UserProfile {
     email: nextUser.email,
     displayName: nextUser.displayName,
     role: "citizen",
+    photoUrl: nextUser.photoURL ?? undefined,
   };
 }
 
@@ -147,6 +175,8 @@ async function ensureUserProfile(nextUser: User): Promise<UserProfile> {
       email: data.email ?? nextUser.email,
       displayName: data.displayName ?? nextUser.displayName,
       role: data.role === "admin" ? "admin" : "citizen",
+      photoUrl: data.photoUrl ?? nextUser.photoURL ?? undefined,
+      photoPublicId: data.photoPublicId,
     };
   }
 

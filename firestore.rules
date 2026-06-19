@@ -18,6 +18,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/upvotes/$(reportId + "_" + uid);
     }
 
+    function reportLimitPath(uid, limitId) {
+      return /databases/$(database)/documents/users/$(uid)/reportLimits/$(limitId);
+    }
+
     function isAdmin() {
       return signedIn()
         && exists(userProfilePath(request.auth.uid))
@@ -42,6 +46,20 @@ service cloud.firestore {
           && data.imagePublicId.matches("^[A-Za-z0-9_./-]+$"));
     }
 
+    function validOptionalCloudinaryPhotoUrl(data) {
+      return !data.keys().hasAny(["photoUrl"])
+        || (data.photoUrl is string
+          && data.photoUrl.size() <= 1000
+          && data.photoUrl.matches("^https://res\\.cloudinary\\.com/dh0xm7zdj/image/upload/.*"));
+    }
+
+    function validOptionalCloudinaryPhotoPublicId(data) {
+      return !data.keys().hasAny(["photoPublicId"])
+        || (data.photoPublicId is string
+          && data.photoPublicId.size() <= 255
+          && data.photoPublicId.matches("^[A-Za-z0-9_./-]+$"));
+    }
+
     function validProfile(uid) {
       return request.resource.data.keys().hasAll([
           "uid",
@@ -57,12 +75,16 @@ service cloud.firestore {
           "displayName",
           "role",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "photoUrl",
+          "photoPublicId"
         ])
         && request.resource.data.uid == uid
         && request.resource.data.role == "citizen"
         && validOptionalString(request.resource.data.email, 254)
         && validOptionalString(request.resource.data.displayName, 80)
+        && validOptionalCloudinaryPhotoUrl(request.resource.data)
+        && validOptionalCloudinaryPhotoPublicId(request.resource.data)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
     }
@@ -101,6 +123,89 @@ service cloud.firestore {
         && longitude is number
         && longitude >= 124.9
         && longitude <= 126.75;
+    }
+
+    function validReportLimitBase(data, uid, scope, maxReports, windowDuration) {
+      return data.keys().hasAll([
+          "uid",
+          "scope",
+          "windowStart",
+          "count",
+          "updatedAt"
+        ])
+        && data.keys().hasOnly([
+          "uid",
+          "scope",
+          "windowStart",
+          "count",
+          "updatedAt"
+        ])
+        && data.uid == uid
+        && data.scope == scope
+        && data.windowStart is timestamp
+        && data.windowStart <= request.time
+        && data.windowStart >= request.time - windowDuration
+        && data.count is int
+        && data.count >= 1
+        && data.count <= maxReports
+        && data.updatedAt == request.time;
+    }
+
+    function validReportLimitCreate(uid, scope, maxReports, windowDuration) {
+      return validReportLimitBase(request.resource.data, uid, scope, maxReports, windowDuration)
+        && request.resource.data.count == 1;
+    }
+
+    function validReportLimitUpdate(uid, scope, maxReports, windowDuration) {
+      return validReportLimitBase(request.resource.data, uid, scope, maxReports, windowDuration)
+        && resource.data.uid == uid
+        && resource.data.scope == scope
+        && resource.data.windowStart is timestamp
+        && resource.data.count is int
+        && (
+          (
+            resource.data.windowStart >= request.time - windowDuration
+            && request.resource.data.windowStart == resource.data.windowStart
+            && request.resource.data.count == resource.data.count + 1
+          )
+          || (
+            resource.data.windowStart < request.time - windowDuration
+            && request.resource.data.count == 1
+          )
+        );
+    }
+
+    function validReportLimitAfterBase(uid, scope, maxReports, windowDuration) {
+      return existsAfter(reportLimitPath(uid, scope))
+        && validReportLimitBase(getAfter(reportLimitPath(uid, scope)).data, uid, scope, maxReports, windowDuration);
+    }
+
+    function validReportLimitAfterIncrement(uid, scope, maxReports, windowDuration) {
+      return validReportLimitAfterBase(uid, scope, maxReports, windowDuration)
+        && (
+          (
+            !exists(reportLimitPath(uid, scope))
+            && getAfter(reportLimitPath(uid, scope)).data.count == 1
+          )
+          || (
+            exists(reportLimitPath(uid, scope))
+            && get(reportLimitPath(uid, scope)).data.windowStart >= request.time - windowDuration
+            && getAfter(reportLimitPath(uid, scope)).data.windowStart ==
+              get(reportLimitPath(uid, scope)).data.windowStart
+            && getAfter(reportLimitPath(uid, scope)).data.count ==
+              get(reportLimitPath(uid, scope)).data.count + 1
+          )
+          || (
+            exists(reportLimitPath(uid, scope))
+            && get(reportLimitPath(uid, scope)).data.windowStart < request.time - windowDuration
+            && getAfter(reportLimitPath(uid, scope)).data.count == 1
+          )
+        );
+    }
+
+    function validReportCreateRateLimit() {
+      return validReportLimitAfterIncrement(request.auth.uid, "hour", 5, duration.value(1, "h"))
+        && validReportLimitAfterIncrement(request.auth.uid, "day", 20, duration.value(24, "h"));
     }
 
     function validReportData() {
@@ -148,7 +253,8 @@ service cloud.firestore {
         && validOptionalCloudinaryImageUrl(request.resource.data)
         && validOptionalCloudinaryPublicId(request.resource.data)
         && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time;
+        && request.resource.data.updatedAt == request.time
+        && validReportCreateRateLimit();
     }
 
     function validReportEditableFields() {
@@ -195,11 +301,32 @@ service cloud.firestore {
           && request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             "displayName",
+            "photoUrl",
+            "photoPublicId",
             "updatedAt"
           ])
           && validOptionalString(request.resource.data.displayName, 80)
+          && validOptionalCloudinaryPhotoUrl(request.resource.data)
+          && validOptionalCloudinaryPhotoPublicId(request.resource.data)
           && request.resource.data.updatedAt == request.time);
       allow delete: if false;
+
+      match /reportLimits/{limitId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow create: if signedIn()
+          && request.auth.uid == uid
+          && (
+            (limitId == "hour" && validReportLimitCreate(uid, "hour", 5, duration.value(1, "h")))
+            || (limitId == "day" && validReportLimitCreate(uid, "day", 20, duration.value(24, "h")))
+          );
+        allow update: if signedIn()
+          && request.auth.uid == uid
+          && (
+            (limitId == "hour" && validReportLimitUpdate(uid, "hour", 5, duration.value(1, "h")))
+            || (limitId == "day" && validReportLimitUpdate(uid, "day", 20, duration.value(24, "h")))
+          );
+        allow delete: if false;
+      }
     }
 
     match /reports/{reportId} {
