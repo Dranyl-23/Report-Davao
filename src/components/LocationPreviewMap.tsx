@@ -197,9 +197,7 @@ function LocationMapCanvas({
       </div>
       {!hasPinnedLocation ? (
         <div
-          className={`pointer-events-none absolute bottom-3 left-3 right-3 z-[500] rounded-lg border border-civic-line bg-white/95 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm ${
-            onLocationPicked && !readOnly ? "pr-36 sm:pr-3" : ""
-          }`}
+          className="pointer-events-none absolute bottom-9 left-3 right-3 z-[500] rounded-lg border border-civic-line bg-white/95 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm sm:bottom-3"
         >
           Use GPS or tap the map to place the report pin.
         </div>
@@ -260,7 +258,7 @@ export function LocationPreviewMap({
       {canPickLocation ? (
         <button
           type="button"
-          className="absolute bottom-3 right-3 z-[520] inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-civic-green px-3 text-xs font-bold text-white shadow-sm sm:hidden"
+          className="absolute left-3 top-24 z-[520] inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-civic-green px-3 text-xs font-bold text-white shadow-sm sm:hidden"
           onClick={() => setIsPickerOpen(true)}
         >
           <Expand size={16} aria-hidden="true" />

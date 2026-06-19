@@ -13,18 +13,23 @@ import { createContext, ReactNode, useContext, useEffect, useMemo, useState } fr
 import { auth } from "./firebase";
 import { db } from "./firebase";
 
-export type UserRole = "citizen" | "admin";
+export type UserRole = "citizen" | "staff" | "lgu-admin" | "super-admin";
 
 export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
   role: UserRole;
+  customClaimsSuperAdmin?: boolean;
   photoUrl?: string;
   photoPublicId?: string;
   residenceArea?: string;
   residenceDistrict?: string;
   residenceBarangay?: string;
+  assignedArea?: string;
+  assignedDepartment?: string;
+  disabled?: boolean;
+  disableReason?: string;
 }
 
 export interface ResidenceInfo {
@@ -37,6 +42,7 @@ interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
   profileError: string;
+  isSuperAdmin: boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<UserProfile>;
   register: (email: string, password: string) => Promise<UserProfile>;
@@ -104,6 +110,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       user,
       profile,
       profileError,
+      isSuperAdmin: profile?.customClaimsSuperAdmin === true || profile?.role === "super-admin",
       loading,
       login: async (email, password) => {
         const credential = await signInWithEmailAndPassword(auth, email, password);
@@ -188,6 +195,12 @@ function getFallbackProfile(nextUser: User): UserProfile {
   };
 }
 
+const userRoles: UserRole[] = ["citizen", "staff", "lgu-admin", "super-admin"];
+
+function normalizeUserRole(role: unknown): UserRole {
+  return typeof role === "string" && userRoles.includes(role as UserRole) ? (role as UserRole) : "citizen";
+}
+
 function getProfileErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unable to load your profile.";
 
@@ -204,7 +217,12 @@ function getProfileErrorMessage(error: unknown) {
 
 async function ensureUserProfile(nextUser: User): Promise<UserProfile> {
   const userRef = doc(db, "users", nextUser.uid);
-  const userSnap = await getDoc(userRef);
+  const [userSnap, idTokenResult] = await Promise.all([
+    getDoc(userRef),
+    nextUser.getIdTokenResult(),
+  ]);
+  const customClaimsSuperAdmin =
+    idTokenResult.claims.superAdmin === true || idTokenResult.claims.role === "super-admin";
 
   if (userSnap.exists()) {
     const data = userSnap.data() as Partial<UserProfile>;
@@ -212,12 +230,17 @@ async function ensureUserProfile(nextUser: User): Promise<UserProfile> {
       uid: nextUser.uid,
       email: data.email ?? nextUser.email,
       displayName: data.displayName ?? nextUser.displayName,
-      role: data.role === "admin" ? "admin" : "citizen",
+      role: customClaimsSuperAdmin ? "super-admin" : normalizeUserRole(data.role),
+      customClaimsSuperAdmin,
       photoUrl: data.photoUrl ?? nextUser.photoURL ?? undefined,
       photoPublicId: data.photoPublicId,
       residenceArea: data.residenceArea,
       residenceDistrict: data.residenceDistrict,
       residenceBarangay: data.residenceBarangay,
+      assignedArea: data.assignedArea,
+      assignedDepartment: data.assignedDepartment,
+      disabled: data.disabled === true,
+      disableReason: data.disableReason,
     };
   }
 
@@ -225,11 +248,15 @@ async function ensureUserProfile(nextUser: User): Promise<UserProfile> {
     uid: nextUser.uid,
     email: nextUser.email,
     displayName: nextUser.displayName,
-    role: "citizen",
+    role: customClaimsSuperAdmin ? "super-admin" : "citizen",
+    customClaimsSuperAdmin,
   };
 
   await setDoc(userRef, {
-    ...profileData,
+    uid: profileData.uid,
+    email: profileData.email,
+    displayName: profileData.displayName,
+    role: "citizen",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

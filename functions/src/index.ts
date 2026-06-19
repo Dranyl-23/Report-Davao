@@ -1,22 +1,19 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineString } from "firebase-functions/params";
+import { initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import * as crypto from "crypto";
 
-// The API Secret lives ONLY in environment variables on the server — never in the browser
-const cloudinaryApiSecret = defineString("CLOUDINARY_API_SECRET");
+initializeApp();
 
-/**
- * Returns a short-lived Cloudinary signed-upload signature.
- * Requires the caller to be authenticated with Firebase Auth.
- * The API Secret is never exposed to the client.
- */
+const cloudinaryApiSecret = defineString("CLOUDINARY_API_SECRET");
+const superAdminEmails = defineString("SUPER_ADMIN_EMAILS");
+
 export const getCloudinarySignature = onCall(
   {
-    // Singapore region — closest to Davao for low latency
     region: "asia-southeast1",
   },
   (request) => {
-    // ── Auth guard ────────────────────────────────────────────────────────────
     if (!request.auth) {
       throw new HttpsError(
         "unauthenticated",
@@ -33,12 +30,8 @@ export const getCloudinarySignature = onCall(
       );
     }
 
-    // ── Build the signature ───────────────────────────────────────────────────
-    // Cloudinary signed upload: SHA-1 of sorted params string + api_secret
     const timestamp = Math.round(Date.now() / 1000);
     const folder = "report-photos";
-
-    // All upload params (except file, api_key, cloud_name) sorted alphabetically
     const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
     const signature = crypto
       .createHash("sha1")
@@ -46,5 +39,60 @@ export const getCloudinarySignature = onCall(
       .digest("hex");
 
     return { signature, timestamp, folder };
+  },
+);
+
+export const setSuperAdminClaim = onCall(
+  {
+    region: "asia-southeast1",
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be signed in.");
+    }
+
+    const allowedOwnerEmails = superAdminEmails
+      .value()
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean);
+    const callerEmail = String(request.auth.token.email ?? "").toLowerCase();
+    const callerIsAllowedOwner = allowedOwnerEmails.includes(callerEmail);
+    const callerIsSuperAdmin =
+      request.auth.token.superAdmin === true ||
+      request.auth.token.role === "super-admin";
+
+    if (!callerIsAllowedOwner && !callerIsSuperAdmin) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only the system owner or an existing super admin can manage super admin claims.",
+      );
+    }
+
+    const targetUid = typeof request.data?.uid === "string" ? request.data.uid : "";
+    const enabled = request.data?.enabled !== false;
+
+    if (!targetUid) {
+      throw new HttpsError("invalid-argument", "Target uid is required.");
+    }
+
+    const targetUser = await getAuth().getUser(targetUid);
+    const currentClaims = targetUser.customClaims ?? {};
+    const nextClaims = {
+      ...currentClaims,
+      role: enabled
+        ? "super-admin"
+        : currentClaims.role === "super-admin"
+          ? "citizen"
+          : currentClaims.role,
+      superAdmin: enabled,
+    };
+
+    await getAuth().setCustomUserClaims(targetUid, nextClaims);
+
+    return {
+      enabled,
+      uid: targetUid,
+    };
   },
 );

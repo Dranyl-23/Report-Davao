@@ -3,6 +3,7 @@ import { AppShell } from "./components/AppShell";
 import { RequireAuth } from "./components/RequireAuth";
 import { AdminPage } from "./pages/AdminPage";
 import { AuthPage } from "./pages/AuthPage";
+import { ForLGUsPage } from "./pages/ForLGUsPage";
 import { MyReportsPage } from "./pages/MyReportsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { ReportDetailPage } from "./pages/ReportDetailPage";
@@ -41,6 +42,7 @@ export default function App() {
           }
         />
         <Route path="reports/:reportId" element={<ReportDetailPage />} />
+        <Route path="for-lgus" element={<ForLGUsPage />} />
         <Route
           path="admin"
           element={

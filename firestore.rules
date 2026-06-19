@@ -22,14 +22,34 @@ service cloud.firestore {
       return /databases/$(database)/documents/users/$(uid)/reportLimits/$(limitId);
     }
 
-    function isAdmin() {
+    function isSuperAdmin() {
       return signedIn()
-        && exists(userProfilePath(request.auth.uid))
-        && get(userProfilePath(request.auth.uid)).data.role == "admin";
+        && (
+          request.auth.token.superAdmin == true
+          || request.auth.token.role == "super-admin"
+          || (
+            exists(userProfilePath(request.auth.uid))
+            && get(userProfilePath(request.auth.uid)).data.role == "super-admin"
+          )
+        );
+    }
+
+    function userIsActive() {
+      return signedIn()
+        && (!exists(userProfilePath(request.auth.uid))
+          || get(userProfilePath(request.auth.uid)).data.disabled != true);
+    }
+
+    function validRole(role) {
+      return role in ["citizen", "staff", "lgu-admin", "super-admin"];
     }
 
     function validOptionalString(value, maxLength) {
       return value == null || (value is string && value.size() <= maxLength);
+    }
+
+    function validOptionalBoolean(value) {
+      return value == null || value is bool;
     }
 
     function validOptionalCloudinaryImageUrl(data) {
@@ -107,7 +127,11 @@ service cloud.firestore {
           "photoPublicId",
           "residenceArea",
           "residenceDistrict",
-          "residenceBarangay"
+          "residenceBarangay",
+          "assignedArea",
+          "assignedDepartment",
+          "disabled",
+          "disableReason"
         ])
         && request.resource.data.uid == uid
         && request.resource.data.role == "citizen"
@@ -116,6 +140,8 @@ service cloud.firestore {
         && validOptionalCloudinaryPhotoUrl(request.resource.data)
         && validOptionalCloudinaryPhotoPublicId(request.resource.data)
         && validOptionalResidenceInfo(request.resource.data)
+        && validOptionalAdminUserFields(request.resource.data)
+        && request.resource.data.disabled != true
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
     }
@@ -143,8 +169,133 @@ service cloud.firestore {
         "Davao Occidental",
         "Davao de Oro",
         "Davao del Norte",
-        "Davao Oriental"
+          "Davao Oriental"
       ];
+    }
+
+    function validOptionalAssignedArea(data) {
+      return !data.keys().hasAny(["assignedArea"])
+        || data.assignedArea == ""
+        || validDavaoRegionArea(data.assignedArea);
+    }
+
+    function validOptionalAdminUserFields(data) {
+      return validOptionalAssignedArea(data)
+        && validOptionalString(data.assignedDepartment, 80)
+        && validOptionalBoolean(data.disabled)
+        && validOptionalString(data.disableReason, 300);
+    }
+
+    function validOptionalReviewFlag(data) {
+      return !data.keys().hasAny(["reviewFlag"])
+        || data.reviewFlag in ["active", "duplicate", "spam", "invalid"];
+    }
+
+    function validOptionalAssignmentFields(data) {
+      return validOptionalString(data.assignedLguId, 120)
+        && validOptionalString(data.assignedDepartment, 80)
+        && validOptionalString(data.assignedStaff, 120)
+        && validOptionalString(data.duplicateOfReportId, 160)
+        && validOptionalString(data.moderationReason, 500)
+        && validOptionalString(data.responseNote, 800)
+        && validOptionalString(data.slaDueAt, 40)
+        && (!data.keys().hasAny(["assignedAt"]) || data.assignedAt == request.time);
+    }
+
+    function validLguPlan(plan) {
+      return plan in ["free-pilot", "basic", "pro", "premium"];
+    }
+
+    function validLguStatus(status) {
+      return status in ["pilot", "active", "paused"];
+    }
+
+    function validLguData(data) {
+      return data.keys().hasAll([
+          "name",
+          "area",
+          "plan",
+          "status",
+          "adminEmail",
+          "updatedAt"
+        ])
+        && data.keys().hasOnly([
+          "name",
+          "area",
+          "plan",
+          "status",
+          "adminEmail",
+          "createdAt",
+          "updatedAt"
+        ])
+        && data.name is string
+        && data.name.size() >= 2
+        && data.name.size() <= 120
+        && validDavaoRegionArea(data.area)
+        && validLguPlan(data.plan)
+        && validLguStatus(data.status)
+        && validOptionalString(data.adminEmail, 254)
+        && data.updatedAt == request.time;
+    }
+
+    function validSystemSettingsData(data) {
+      return data.keys().hasAll([
+          "allowedImageTypes",
+          "blockedWords",
+          "duplicateRadiusMeters",
+          "maintenanceMode",
+          "maxImageSizeMb",
+          "pwaInstallPrompt",
+          "reportLimitPerDay",
+          "reportLimitPerHour",
+          "updatedAt"
+        ])
+        && data.keys().hasOnly([
+          "allowedImageTypes",
+          "blockedWords",
+          "duplicateRadiusMeters",
+          "maintenanceMode",
+          "maxImageSizeMb",
+          "pwaInstallPrompt",
+          "reportLimitPerDay",
+          "reportLimitPerHour",
+          "updatedAt"
+        ])
+        && data.allowedImageTypes is list
+        && data.allowedImageTypes.size() >= 1
+        && data.allowedImageTypes.size() <= 5
+        && data.allowedImageTypes.hasOnly(["image/jpeg", "image/png", "image/webp"])
+        && data.blockedWords is list
+        && data.blockedWords.size() <= 50
+        && data.duplicateRadiusMeters is int
+        && data.duplicateRadiusMeters >= 25
+        && data.duplicateRadiusMeters <= 1000
+        && data.maintenanceMode is bool
+        && data.maxImageSizeMb is int
+        && data.maxImageSizeMb >= 1
+        && data.maxImageSizeMb <= 10
+        && data.pwaInstallPrompt is bool
+        && data.reportLimitPerDay is int
+        && data.reportLimitPerDay >= 1
+        && data.reportLimitPerDay <= 100
+        && data.reportLimitPerHour is int
+        && data.reportLimitPerHour >= 1
+        && data.reportLimitPerHour <= 20
+        && data.updatedAt == request.time;
+    }
+
+    function validWorkflowSettingsData(data) {
+      return data.keys().hasAll([
+          "rejectionReasons",
+          "updatedAt"
+        ])
+        && data.keys().hasOnly([
+          "rejectionReasons",
+          "updatedAt"
+        ])
+        && data.rejectionReasons is list
+        && data.rejectionReasons.size() <= 25
+        && data.updatedAt == request.time;
     }
 
     function validDavaoCoordinates(latitude, longitude) {
@@ -308,7 +459,7 @@ service cloud.firestore {
     }
 
     function validReportConfirmationCountUpdate(reportId) {
-      return signedIn()
+      return userIsActive()
         && resource.data.createdBy != request.auth.uid
         && !exists(upvotePath(reportId, request.auth.uid))
         && getAfter(upvotePath(reportId, request.auth.uid)).data.reportId == reportId
@@ -322,27 +473,32 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow list: if isAdmin();
+      allow get: if signedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow list: if isSuperAdmin();
       allow create: if signedIn()
         && request.auth.uid == uid
         && validProfile(uid);
-      allow update: if (isAdmin()
+      allow update: if (isSuperAdmin()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             "role",
+            "disabled",
+            "assignedArea",
+            "assignedDepartment",
             "displayName",
             "photoUrl",
             "photoPublicId",
             "residenceArea",
             "residenceDistrict",
             "residenceBarangay",
+            "disableReason",
             "updatedAt"
           ])
-          && request.resource.data.role in ["citizen", "admin"]
+          && validRole(request.resource.data.role)
           && validOptionalString(request.resource.data.displayName, 80)
           && validOptionalCloudinaryPhotoUrl(request.resource.data)
           && validOptionalCloudinaryPhotoPublicId(request.resource.data)
           && validOptionalResidenceInfo(request.resource.data)
+          && validOptionalAdminUserFields(request.resource.data)
           && request.resource.data.updatedAt == request.time)
         || (signedIn()
           && request.auth.uid == uid
@@ -382,15 +538,26 @@ service cloud.firestore {
 
     match /reports/{reportId} {
       allow read: if true;
-      allow create: if signedIn() && validReportData();
-      allow update: if (isAdmin()
+      allow create: if userIsActive() && validReportData();
+      allow update: if (isSuperAdmin()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             "status",
+            "reviewFlag",
+            "assignedLguId",
+            "assignedDepartment",
+            "assignedStaff",
+            "assignedAt",
+            "duplicateOfReportId",
+            "moderationReason",
+            "responseNote",
+            "slaDueAt",
             "updatedAt"
           ])
           && validStatus(request.resource.data.status)
+          && validOptionalReviewFlag(request.resource.data)
+          && validOptionalAssignmentFields(request.resource.data)
           && request.resource.data.updatedAt == request.time)
-        || (signedIn()
+        || (userIsActive()
           && resource.data.createdBy == request.auth.uid
           && resource.data.status == "submitted"
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -404,15 +571,15 @@ service cloud.firestore {
           ])
           && validReportEditableFields())
         || validReportConfirmationCountUpdate(reportId);
-      allow delete: if isAdmin()
-        || (signedIn()
+      allow delete: if isSuperAdmin()
+        || (userIsActive()
           && resource.data.createdBy == request.auth.uid
           && resource.data.status == "submitted");
     }
 
     match /statusLogs/{logId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin()
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin()
         && request.resource.data.keys().hasAll([
           "reportId",
           "status",
@@ -434,9 +601,62 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /auditLogs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && request.resource.data.keys().hasAll([
+          "action",
+          "targetType",
+          "targetId",
+          "summary",
+          "actorId",
+          "createdAt"
+        ])
+        && request.resource.data.keys().hasOnly([
+          "action",
+          "targetType",
+          "targetId",
+          "summary",
+          "actorId",
+          "createdAt"
+        ])
+        && request.resource.data.action is string
+        && request.resource.data.action.size() <= 80
+        && request.resource.data.targetType is string
+        && request.resource.data.targetType.size() <= 40
+        && request.resource.data.targetId is string
+        && request.resource.data.targetId.size() <= 160
+        && request.resource.data.summary is string
+        && request.resource.data.summary.size() <= 500
+        && request.resource.data.actorId == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /lgus/{lguId} {
+      allow read, list: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && validLguData(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isSuperAdmin()
+        && validLguData(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /adminSettings/{settingId} {
+      allow read, list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin()
+        && (
+          (settingId == "system" && validSystemSettingsData(request.resource.data))
+          || (settingId == "workflow" && validWorkflowSettingsData(request.resource.data))
+        );
+      allow delete: if false;
+    }
+
     match /upvotes/{upvoteId} {
-      allow read: if signedIn() && resource.data.userId == request.auth.uid;
-      allow create: if signedIn()
+      allow read: if isSuperAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if userIsActive()
         && upvoteId == request.resource.data.reportId + "_" + request.auth.uid
         && request.resource.data.keys().hasAll([
           "reportId",
