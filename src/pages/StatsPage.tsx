@@ -20,7 +20,7 @@ export function StatsPage() {
         <h2 className="text-xl font-bold text-civic-ink">Public Stats</h2>
         {usingSampleData ? (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
-            Showing sample stats until Firestore has report data.
+            Showing demo stats until live reports are available.
           </p>
         ) : null}
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

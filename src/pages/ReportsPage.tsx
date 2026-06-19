@@ -88,7 +88,7 @@ export function ReportsPage() {
     }
 
     if (usingSampleData) {
-      setActionMessage("Submit or load real Firestore reports before confirming.");
+      setActionMessage("Confirmations are available once live reports are loaded.");
       return;
     }
 
@@ -199,7 +199,7 @@ export function ReportsPage() {
               </select>
             </label>
           </div>
-          {loading ? <p className="mt-3 text-sm font-semibold text-slate-500">Loading Firestore reports...</p> : null}
+          {loading ? <p className="mt-3 text-sm font-semibold text-slate-500">Loading reports...</p> : null}
           {error ? <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-civic-red">{error}</p> : null}
           {actionMessage ? (
             <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-civic-green">
@@ -208,7 +208,7 @@ export function ReportsPage() {
           ) : null}
           {usingSampleData ? (
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
-              No Firestore reports yet. Showing sample data until the first report is submitted.
+              Showing demo reports until live reports are available.
             </p>
           ) : null}
         </div>

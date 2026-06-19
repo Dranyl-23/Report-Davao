@@ -1,19 +1,22 @@
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { Camera, LocateFixed, MapPin, Send, X } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Camera, CheckCircle2, LocateFixed, MapPin, Send, ThumbsUp, X } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   davaoRegionAreas,
   defaultDavaoCoordinates,
   isWithinDavaoCoordinateBounds,
 } from "../data/davaoRegion";
 import { LocationPreviewMap } from "../components/LocationPreviewMap";
-import { createReport } from "../lib/reports";
+import { StatusBadge } from "../components/StatusBadge";
+import { useReports } from "../hooks/useReports";
+import { confirmReport, createReport } from "../lib/reports";
 import { useAuth } from "../lib/auth";
 import { uploadReportImage, validateReportImage } from "../lib/cloudinary";
 import type { ReportCategory } from "../types/report";
 
 const excellentGpsAccuracyMeters = 25;
 const gpsSearchTimeoutMs = 18000;
+const duplicateRadiusMeters = 500;
 
 function formatAccuracy(meters: number | null) {
   if (meters === null || !Number.isFinite(meters)) {
@@ -34,9 +37,35 @@ function toCoordinates(position: GeolocationPosition) {
   };
 }
 
+function getDistanceMeters(
+  first: { lat: number; lng: number },
+  second: { lat: number; lng: number },
+) {
+  const earthRadiusMeters = 6371000;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const deltaLat = toRadians(second.lat - first.lat);
+  const deltaLng = toRadians(second.lng - first.lng);
+  const firstLat = toRadians(first.lat);
+  const secondLat = toRadians(second.lat);
+  const haversine =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(firstLat) * Math.cos(secondLat) * Math.sin(deltaLng / 2) ** 2;
+
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function formatDistance(meters: number) {
+  if (meters >= 1000) {
+    return `${(meters / 1000).toFixed(1)} km away`;
+  }
+
+  return `${Math.round(meters)} m away`;
+}
+
 export function SubmitReportPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { confirmedReportIds, reports } = useReports(user?.uid);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<ReportCategory>("pothole");
   const [area, setArea] = useState("Davao City");
@@ -48,6 +77,7 @@ export function SubmitReportPage() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [locating, setLocating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmingReportId, setConfirmingReportId] = useState("");
   const [message, setMessage] = useState("");
 
   // Track GPS resources for cleanup on unmount
@@ -76,6 +106,46 @@ export function SubmitReportPage() {
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     };
   }, []);
+
+  const duplicateCandidates = useMemo(() => {
+    if (!hasPinnedLocation) {
+      return [];
+    }
+
+    return reports
+      .filter((report) => {
+        if (report.status === "resolved" || report.category !== category) {
+          return false;
+        }
+
+        return getDistanceMeters(coordinates, report.coordinates) <= duplicateRadiusMeters;
+      })
+      .map((report) => ({
+        report,
+        distanceMeters: getDistanceMeters(coordinates, report.coordinates),
+      }))
+      .sort((first, second) => first.distanceMeters - second.distanceMeters)
+      .slice(0, 3);
+  }, [category, coordinates, hasPinnedLocation, reports]);
+
+  async function handleConfirmExisting(reportId: string) {
+    if (!user) {
+      setMessage("Please sign in first.");
+      return;
+    }
+
+    setConfirmingReportId(reportId);
+    setMessage("");
+
+    try {
+      await confirmReport(reportId, user.uid);
+      setMessage("Existing report confirmed. Thanks for helping verify the issue.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Confirmation failed. Please try again.");
+    } finally {
+      setConfirmingReportId("");
+    }
+  }
 
   function handleLocationPicked(
     nextCoordinates: { lat: number; lng: number },
@@ -373,6 +443,82 @@ export function SubmitReportPage() {
                 }`
               : "Location pin required before submission."}
           </div>
+
+          {duplicateCandidates.length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start gap-2">
+                <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+                <div>
+                  <h3 className="text-sm font-bold text-amber-950">Possible duplicate nearby</h3>
+                  <p className="mt-1 text-sm leading-6 text-amber-900">
+                    If this is the same issue, confirm the existing report instead of submitting a duplicate.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {duplicateCandidates.map(({ report, distanceMeters }) => {
+                  const isOwnReport = report.createdBy === user?.uid;
+                  const isConfirmed = confirmedReportIds.has(report.id);
+                  const confirmDisabled = isOwnReport || isConfirmed || confirmingReportId === report.id;
+
+                  return (
+                    <div key={report.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <Link
+                            to={`/reports/${report.id}`}
+                            className="text-sm font-bold text-civic-ink hover:text-civic-green"
+                          >
+                            {report.title}
+                          </Link>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+                            <span className="rounded-md bg-civic-field px-2 py-1">
+                              {formatDistance(distanceMeters)}
+                            </span>
+                            <span className="rounded-md bg-civic-field px-2 py-1">
+                              {report.upvotes} confirmations
+                            </span>
+                            <StatusBadge status={report.status} />
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Link
+                            to={`/reports/${report.id}`}
+                            className="inline-flex h-9 items-center justify-center rounded-lg border border-civic-line bg-civic-field px-3 text-xs font-bold text-civic-ink hover:bg-white"
+                          >
+                            View
+                          </Link>
+                          <button
+                            type="button"
+                            className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                              isConfirmed
+                                ? "bg-emerald-50 text-civic-green"
+                                : "bg-civic-green text-white hover:bg-emerald-800"
+                            }`}
+                            disabled={confirmDisabled}
+                            onClick={() => handleConfirmExisting(report.id)}
+                          >
+                            {isConfirmed ? (
+                              <CheckCircle2 size={15} aria-hidden="true" />
+                            ) : (
+                              <ThumbsUp size={15} aria-hidden="true" />
+                            )}
+                            {confirmingReportId === report.id
+                              ? "Confirming..."
+                              : isOwnReport
+                                ? "Own report"
+                                : isConfirmed
+                                  ? "Confirmed"
+                                  : "Confirm existing"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           {message ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{message}</p> : null}
 

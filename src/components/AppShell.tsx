@@ -1,5 +1,16 @@
-import { useState } from "react";
-import { BarChart3, ClipboardList, LogIn, LogOut, LucideIcon, MapPinned, Menu, PlusCircle, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  BarChart3,
+  ClipboardList,
+  LogIn,
+  LogOut,
+  LucideIcon,
+  MapPinned,
+  Menu,
+  PlusCircle,
+  UserCircle,
+  X,
+} from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import logoUrl from "../assets/images/RD_logo.png";
 import { useAuth } from "../lib/auth";
@@ -46,14 +57,63 @@ function NavigationLink({ to, label, icon: Icon, end = false, mobile = false, on
 export function AppShell() {
   const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const visibleNavItems = user
-    ? [...navItems, { to: "/my-reports", label: "My Reports", icon: ClipboardList }]
+    ? [
+        ...navItems,
+        { to: "/my-reports", label: "My Reports", icon: ClipboardList },
+        { to: "/profile", label: "Profile", icon: UserCircle },
+      ]
     : navItems;
 
   function handleLogout() {
     setMobileMenuOpen(false);
-    void logout();
+    setLogoutError("");
+    setLogoutModalOpen(true);
   }
+
+  async function confirmLogout() {
+    setLogoutLoading(true);
+    setLogoutError("");
+
+    try {
+      await logout();
+      setLogoutModalOpen(false);
+    } catch (error) {
+      setLogoutError(error instanceof Error ? error.message : "Logout failed. Please try again.");
+    } finally {
+      setLogoutLoading(false);
+    }
+  }
+
+  function closeLogoutModal() {
+    if (logoutLoading) {
+      return;
+    }
+
+    setLogoutModalOpen(false);
+    setLogoutError("");
+  }
+
+  useEffect(() => {
+    if (!logoutModalOpen) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeLogoutModal();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [logoutLoading, logoutModalOpen]);
 
   return (
     <div className="min-h-screen bg-[#eef2ef]">
@@ -131,6 +191,70 @@ export function AppShell() {
       <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
         <Outlet />
       </main>
+      {logoutModalOpen ? (
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/45 px-4"
+          role="presentation"
+          onMouseDown={closeLogoutModal}
+        >
+          <section
+            aria-modal="true"
+            aria-labelledby="logout-dialog-title"
+            className="w-full max-w-md rounded-lg border border-civic-line bg-white p-5 shadow-xl"
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-red-50 text-civic-red">
+                  <LogOut className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <h2 id="logout-dialog-title" className="text-lg font-bold text-civic-ink">
+                    Confirm logout
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Are you sure you want to sign out of Report Davao?
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-civic-field hover:text-civic-ink focus:outline-none focus:ring-2 focus:ring-civic-green"
+                onClick={closeLogoutModal}
+                disabled={logoutLoading}
+                aria-label="Close logout confirmation"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            {logoutError ? (
+              <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-civic-red">
+                {logoutError}
+              </p>
+            ) : null}
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-lg border border-civic-line bg-civic-field px-4 text-sm font-bold text-civic-ink hover:bg-white disabled:opacity-60"
+                onClick={closeLogoutModal}
+                disabled={logoutLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-civic-red px-4 text-sm font-bold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={confirmLogout}
+                disabled={logoutLoading}
+              >
+                <LogOut className="h-5 w-5" aria-hidden="true" />
+                {logoutLoading ? "Logging out..." : "Logout"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

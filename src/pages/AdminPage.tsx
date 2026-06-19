@@ -64,7 +64,7 @@ export function AdminPage() {
           className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-civic-line bg-civic-field px-4 text-sm font-semibold text-civic-ink hover:bg-white disabled:opacity-50"
           disabled={usingSampleData || displayReports.length === 0}
           onClick={exportCsv}
-          title={usingSampleData ? "Export is only available for real Firestore reports" : "Download all reports as CSV"}
+          title={usingSampleData ? "Export is available once live reports are loaded" : "Download all reports as CSV"}
         >
           <Download size={18} aria-hidden="true" />
           Export CSV
@@ -80,7 +80,7 @@ export function AdminPage() {
       ) : null}
       {usingSampleData ? (
         <p className="rounded-lg bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-          No Firestore reports yet. Submit a real report first before using admin status updates.
+          Live reports are not available yet. Submit a report before using admin status updates.
         </p>
       ) : null}
 

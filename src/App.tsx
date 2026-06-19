@@ -4,6 +4,7 @@ import { RequireAuth } from "./components/RequireAuth";
 import { AdminPage } from "./pages/AdminPage";
 import { AuthPage } from "./pages/AuthPage";
 import { MyReportsPage } from "./pages/MyReportsPage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { ReportDetailPage } from "./pages/ReportDetailPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { StatsPage } from "./pages/StatsPage";
@@ -28,6 +29,14 @@ export default function App() {
           element={
             <RequireAuth>
               <MyReportsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="profile"
+          element={
+            <RequireAuth>
+              <ProfilePage />
             </RequireAuth>
           }
         />

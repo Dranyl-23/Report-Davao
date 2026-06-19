@@ -27,7 +27,7 @@ function formatReportDate(value: string) {
 }
 
 function formatCategory(category: string) {
-  return category.replace("-", " ");
+  return category.replace(/-/g, " ");
 }
 
 export function ReportCard({

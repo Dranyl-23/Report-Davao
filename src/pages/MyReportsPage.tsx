@@ -40,7 +40,7 @@ export function MyReportsPage() {
 
       {usingSampleData ? (
         <p className="rounded-lg bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-          No real Firestore reports yet. Submit your first report to start tracking.
+          No submitted reports yet. Submit your first report to start tracking.
         </p>
       ) : null}
 

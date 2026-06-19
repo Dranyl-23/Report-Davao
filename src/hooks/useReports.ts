@@ -7,15 +7,15 @@ const firestoreLoadTimeoutMs = 7000;
 
 function friendlyFirestoreError(message: string) {
   if (message.includes("Database") && message.includes("not found")) {
-    return "Firestore database was not found for this Firebase project. Create/check the default Firestore database, publish rules, then refresh.";
+    return "Live report data is not available yet. Please try again after setup is completed.";
   }
 
   if (message.includes("offline") || message.includes("unavailable")) {
-    return "Firestore is unreachable right now. If your internet is working, check that the default Firestore database exists and your Firebase project config is correct.";
+    return "Live report data is unreachable right now. Check your connection and refresh.";
   }
 
   if (message.includes("permission-denied")) {
-    return "Firestore rejected the request. Publish the latest Firestore rules, then refresh.";
+    return "You do not have permission to access this report data right now.";
   }
 
   return message;
@@ -31,7 +31,7 @@ export function useReports(userId?: string) {
     let receivedFirstResponse = false;
     const timeoutId = window.setTimeout(() => {
       if (!receivedFirstResponse) {
-        setError("Firestore is taking too long to respond. Showing local sample data for now.");
+        setError("Live report data is taking too long to load. Showing demo reports for now.");
         setLoading(false);
       }
     }, firestoreLoadTimeoutMs);

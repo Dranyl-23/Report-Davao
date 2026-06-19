@@ -123,17 +123,17 @@ function getFallbackProfile(nextUser: User): UserProfile {
 }
 
 function getProfileErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "Unable to load Firestore user profile.";
+  const message = error instanceof Error ? error.message : "Unable to load your profile.";
 
   if (message.includes("Database") && message.includes("not found")) {
-    return "Signed in, but Firestore database is not available. Create/check the default Firestore database for this Firebase project, then refresh.";
+    return "Signed in, but live profile data is not available yet. Please try again after setup is completed.";
   }
 
   if (message.includes("offline")) {
-    return "Signed in, but Firestore is unreachable right now. If your internet is working, check that the default Firestore database exists and rules are published.";
+    return "Signed in, but profile data is unreachable right now. Check your connection and refresh.";
   }
 
-  return `Signed in, but the Firestore user profile could not be loaded: ${message}`;
+  return `Signed in, but your profile could not be loaded: ${message}`;
 }
 
 async function ensureUserProfile(nextUser: User): Promise<UserProfile> {
