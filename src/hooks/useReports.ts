@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { sampleReports } from "../data/sampleReports";
 import { listenToConfirmations, listenToReports, type ReportConfirmation } from "../lib/reports";
 import type { CivicReport } from "../types/report";
@@ -21,9 +21,22 @@ function friendlyFirestoreError(message: string) {
   return message;
 }
 
-export function useReports(userId?: string) {
+interface ReportsContextValue {
+  reports: CivicReport[];
+  displayReports: CivicReport[];
+  loading: boolean;
+  error: string;
+  usingSampleData: boolean;
+}
+
+const ReportsContext = createContext<ReportsContextValue | undefined>(undefined);
+
+interface ReportsProviderProps {
+  children: ReactNode;
+}
+
+export function ReportsProvider({ children }: ReportsProviderProps) {
   const [reports, setReports] = useState<CivicReport[]>([]);
-  const [confirmations, setConfirmations] = useState<ReportConfirmation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -58,6 +71,35 @@ export function useReports(userId?: string) {
     };
   }, []);
 
+  const displayReports = useMemo(
+    () => (!loading && reports.length === 0 ? sampleReports : reports),
+    [reports, loading],
+  );
+
+  const value = useMemo(
+    () => ({
+      reports,
+      displayReports,
+      loading,
+      error,
+      usingSampleData: !loading && reports.length === 0,
+    }),
+    [reports, displayReports, loading, error],
+  );
+
+  return React.createElement(ReportsContext.Provider, { value }, children);
+}
+
+export function useReports(userId?: string) {
+  const context = useContext(ReportsContext);
+  if (!context) {
+    throw new Error("useReports must be used within a ReportsProvider");
+  }
+
+  const { reports, displayReports, loading, error, usingSampleData } = context;
+  const [confirmations, setConfirmations] = useState<ReportConfirmation[]>([]);
+  const [confirmationsError, setConfirmationsError] = useState("");
+
   useEffect(() => {
     if (!userId) {
       setConfirmations([]);
@@ -68,9 +110,10 @@ export function useReports(userId?: string) {
       userId,
       (nextConfirmations) => {
         setConfirmations(nextConfirmations);
+        setConfirmationsError("");
       },
       (message) => {
-        setError(friendlyFirestoreError(message));
+        setConfirmationsError(friendlyFirestoreError(message));
       },
     );
 
@@ -91,17 +134,13 @@ export function useReports(userId?: string) {
     );
   }, [confirmations, userId]);
 
-  const displayReports = useMemo(
-    () => (!loading && reports.length === 0 ? sampleReports : reports),
-    [reports, loading],
-  );
-
   return {
     reports,
     displayReports,
     confirmedReportIds,
     loading,
-    error,
-    usingSampleData: !loading && reports.length === 0,
+    error: error || confirmationsError,
+    usingSampleData,
   };
 }
+

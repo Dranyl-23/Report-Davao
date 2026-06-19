@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -108,8 +109,12 @@ function toReportConfirmation(id: string, data: FirestoreConfirmation): ReportCo
   };
 }
 
-export function listenToReports(onReports: (reports: CivicReport[]) => void, onError: (message: string) => void) {
-  const reportsQuery = query(reportsCollection, orderBy("createdAt", "desc"));
+export function listenToReports(
+  onReports: (reports: CivicReport[]) => void,
+  onError: (message: string) => void,
+  queryLimit = 100,
+) {
+  const reportsQuery = query(reportsCollection, orderBy("createdAt", "desc"), limit(queryLimit));
 
   return onSnapshot(
     reportsQuery,

@@ -327,7 +327,23 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.auth.uid == uid
         && validProfile(uid);
-      allow update: if isAdmin()
+      allow update: if (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "role",
+            "displayName",
+            "photoUrl",
+            "photoPublicId",
+            "residenceArea",
+            "residenceDistrict",
+            "residenceBarangay",
+            "updatedAt"
+          ])
+          && request.resource.data.role in ["citizen", "admin"]
+          && validOptionalString(request.resource.data.displayName, 80)
+          && validOptionalCloudinaryPhotoUrl(request.resource.data)
+          && validOptionalCloudinaryPhotoPublicId(request.resource.data)
+          && validOptionalResidenceInfo(request.resource.data)
+          && request.resource.data.updatedAt == request.time)
         || (signedIn()
           && request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([

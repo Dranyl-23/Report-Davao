@@ -60,6 +60,40 @@ export function AppShell() {
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  useEffect(() => {
+    let timeoutId: any;
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+
+      // Delay showing the install banner by 10 seconds
+      timeoutId = window.setTimeout(() => {
+        setShowInstallBanner(true);
+      }, 10000);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`PWA install choice: ${outcome}`);
+    setDeferredPrompt(null);
+    setShowInstallBanner(false);
+  };
   const visibleNavItems = user
     ? [
         ...navItems,
@@ -189,6 +223,35 @@ export function AppShell() {
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+        {showInstallBanner ? (
+          <div className="animate-slide-down-fade mb-5 flex flex-col gap-3 rounded-lg border border-civic-line bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-civic-blue shadow-sm">
+                <MapPinned size={20} aria-hidden="true" />
+              </div>
+              <div>
+                <h3 className="font-bold text-civic-ink">Install Report Davao</h3>
+                <p className="text-xs text-slate-600">Access reports faster and offline from your home screen.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-lg bg-civic-blue px-3 text-xs font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-civic-blue"
+                onClick={handleInstallClick}
+              >
+                Install App
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-civic-line bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-civic-field focus:outline-none focus:ring-2 focus:ring-slate-400"
+                onClick={() => setShowInstallBanner(false)}
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        ) : null}
         <Outlet />
       </main>
       {logoutModalOpen ? (
