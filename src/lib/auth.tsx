@@ -22,6 +22,15 @@ export interface UserProfile {
   role: UserRole;
   photoUrl?: string;
   photoPublicId?: string;
+  residenceArea?: string;
+  residenceDistrict?: string;
+  residenceBarangay?: string;
+}
+
+export interface ResidenceInfo {
+  residenceArea: string;
+  residenceDistrict: string;
+  residenceBarangay: string;
 }
 
 interface AuthContextValue {
@@ -29,10 +38,11 @@ interface AuthContextValue {
   profile: UserProfile | null;
   profileError: string;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: () => Promise<void>;
+  login: (email: string, password: string) => Promise<UserProfile>;
+  register: (email: string, password: string) => Promise<UserProfile>;
+  loginWithGoogle: () => Promise<UserProfile>;
   updateProfilePhoto: (photoUrl: string, photoPublicId: string) => Promise<void>;
+  updateResidenceInfo: (residenceInfo: ResidenceInfo) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -80,9 +90,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const nextProfile = await ensureUserProfile(nextUser);
       setProfile(nextProfile);
       setProfileError("");
+      return nextProfile;
     } catch (error) {
-      setProfile(getFallbackProfile(nextUser));
+      const fallbackProfile = getFallbackProfile(nextUser);
+      setProfile(fallbackProfile);
       setProfileError(getProfileErrorMessage(error));
+      return fallbackProfile;
     }
   }
 
@@ -94,16 +107,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       loading,
       login: async (email, password) => {
         const credential = await signInWithEmailAndPassword(auth, email, password);
-        await syncProfile(credential.user);
+        return syncProfile(credential.user);
       },
       register: async (email, password) => {
         const credential = await createUserWithEmailAndPassword(auth, email, password);
-        await syncProfile(credential.user);
+        return syncProfile(credential.user);
       },
       loginWithGoogle: async () => {
         const provider = new GoogleAuthProvider();
         const credential = await signInWithPopup(auth, provider);
-        await syncProfile(credential.user);
+        return syncProfile(credential.user);
       },
       updateProfilePhoto: async (photoUrl, photoPublicId) => {
         if (!auth.currentUser) {
@@ -125,6 +138,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
             ...baseProfile,
             photoUrl,
             photoPublicId,
+          };
+        });
+      },
+      updateResidenceInfo: async (residenceInfo) => {
+        if (!auth.currentUser) {
+          throw new Error("Please sign in first.");
+        }
+
+        const nextResidenceInfo = {
+          residenceArea: residenceInfo.residenceArea.trim(),
+          residenceDistrict: residenceInfo.residenceDistrict.trim(),
+          residenceBarangay: residenceInfo.residenceBarangay.trim(),
+        };
+
+        await updateDoc(doc(db, "users", auth.currentUser.uid), {
+          ...nextResidenceInfo,
+          updatedAt: serverTimestamp(),
+        });
+
+        setProfile((currentProfile) => {
+          const baseProfile = currentProfile ?? getFallbackProfile(auth.currentUser as User);
+
+          return {
+            ...baseProfile,
+            ...nextResidenceInfo,
           };
         });
       },
@@ -177,6 +215,9 @@ async function ensureUserProfile(nextUser: User): Promise<UserProfile> {
       role: data.role === "admin" ? "admin" : "citizen",
       photoUrl: data.photoUrl ?? nextUser.photoURL ?? undefined,
       photoPublicId: data.photoPublicId,
+      residenceArea: data.residenceArea,
+      residenceDistrict: data.residenceDistrict,
+      residenceBarangay: data.residenceBarangay,
     };
   }
 

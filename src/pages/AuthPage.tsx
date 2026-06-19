@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Mail, ShieldCheck } from "lucide-react";
 import { useAuth } from "../lib/auth";
+import { isCitizenProfileComplete } from "../lib/profile";
 
 function friendlyAuthError(message: string) {
   if (message.includes("auth/api-key-not-valid")) {
@@ -30,7 +31,7 @@ function friendlyAuthError(message: string) {
 export function AuthPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, loading, login, register, loginWithGoogle } = useAuth();
+  const { profile, user, loading, login, register, loginWithGoogle } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,7 +47,25 @@ export function AuthPage() {
       : "/";
 
   if (!loading && user) {
-    return <Navigate to={redirectTo} replace />;
+    return (
+      <Navigate
+        to={isCitizenProfileComplete(profile) ? redirectTo : "/profile"}
+        state={!isCitizenProfileComplete(profile) ? { setupProfile: true, from: redirectTo } : undefined}
+        replace
+      />
+    );
+  }
+
+  function navigateAfterAuth(nextProfile: Awaited<ReturnType<typeof login>>) {
+    if (isCitizenProfileComplete(nextProfile)) {
+      navigate(redirectTo, { replace: true });
+      return;
+    }
+
+    navigate("/profile", {
+      replace: true,
+      state: { setupProfile: true, from: redirectTo },
+    });
   }
 
   async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
@@ -55,12 +74,11 @@ export function AuthPage() {
     setSubmitting(true);
 
     try {
-      if (mode === "login") {
-        await login(email, password);
-      } else {
-        await register(email, password);
-      }
-      navigate(redirectTo, { replace: true });
+      const nextProfile =
+        mode === "login"
+          ? await login(email, password)
+          : await register(email, password);
+      navigateAfterAuth(nextProfile);
     } catch (authError) {
       setError(friendlyAuthError(authError instanceof Error ? authError.message : "Authentication failed."));
     } finally {
@@ -73,8 +91,8 @@ export function AuthPage() {
     setSubmitting(true);
 
     try {
-      await loginWithGoogle();
-      navigate(redirectTo, { replace: true });
+      const nextProfile = await loginWithGoogle();
+      navigateAfterAuth(nextProfile);
     } catch (authError) {
       setError(friendlyAuthError(authError instanceof Error ? authError.message : "Google sign-in failed."));
     } finally {

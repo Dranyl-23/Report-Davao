@@ -1,7 +1,19 @@
-import { ChangeEvent, useState } from "react";
-import { CalendarDays, Camera, CheckCircle2, ClipboardList, Loader2, Mail, PlusCircle, UserCircle } from "lucide-react";
-import { Link } from "react-router-dom";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  CalendarDays,
+  Camera,
+  CheckCircle2,
+  ClipboardList,
+  Loader2,
+  Mail,
+  MapPin,
+  PlusCircle,
+  Save,
+  UserCircle,
+} from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ReportCard } from "../components/ReportCard";
+import { davaoRegionAreas, davaoResidenceLocalities } from "../data/davaoRegion";
 import { useReports } from "../hooks/useReports";
 import { useAuth } from "../lib/auth";
 import { uploadProfileImage, validateReportImage } from "../lib/cloudinary";
@@ -23,16 +35,29 @@ function formatProfileDate(value?: string) {
 }
 
 export function ProfilePage() {
-  const { profile, updateProfilePhoto, user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { profile, updateProfilePhoto, updateResidenceInfo, user } = useAuth();
   const { confirmedReportIds, error, loading, reports, usingSampleData } = useReports(user?.uid);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoMessage, setPhotoMessage] = useState("");
+  const [residenceArea, setResidenceArea] = useState(profile?.residenceArea ?? "");
+  const [residenceDistrict, setResidenceDistrict] = useState(profile?.residenceDistrict ?? "");
+  const [residenceBarangay, setResidenceBarangay] = useState(profile?.residenceBarangay ?? "");
+  const [savingResidence, setSavingResidence] = useState(false);
+  const [residenceMessage, setResidenceMessage] = useState("");
   const submittedReports = reports.filter((report) => report.createdBy === user?.uid);
   const confirmedReports = reports.filter((report) => confirmedReportIds.has(report.id));
   const displayName = profile?.displayName || user?.displayName || "Report Davao Citizen";
   const email = profile?.email || user?.email || "No email available";
   const photoUrl = profile?.photoUrl || user?.photoURL || "";
   const joinedDate = formatProfileDate(user?.metadata.creationTime);
+  const locationState = location.state as { setupProfile?: boolean; from?: string } | null;
+  const isSetupFlow = Boolean(locationState?.setupProfile);
+  const setupRedirectTo =
+    locationState?.from && locationState.from !== "/profile" && locationState.from !== "/auth"
+      ? locationState.from
+      : "";
 
   const stats = [
     {
@@ -48,6 +73,20 @@ export function ProfilePage() {
       tone: "bg-blue-50 text-civic-blue",
     },
   ];
+
+  const districtOptions = useMemo(() => {
+    if (!residenceArea || !(residenceArea in davaoResidenceLocalities)) {
+      return [];
+    }
+
+    return davaoResidenceLocalities[residenceArea as keyof typeof davaoResidenceLocalities];
+  }, [residenceArea]);
+
+  useEffect(() => {
+    setResidenceArea(profile?.residenceArea ?? "");
+    setResidenceDistrict(profile?.residenceDistrict ?? "");
+    setResidenceBarangay(profile?.residenceBarangay ?? "");
+  }, [profile?.residenceArea, profile?.residenceBarangay, profile?.residenceDistrict]);
 
   async function handleProfilePhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -78,8 +117,62 @@ export function ProfilePage() {
     }
   }
 
+  function handleResidenceAreaChange(nextArea: string) {
+    setResidenceArea(nextArea);
+    setResidenceDistrict("");
+    setResidenceMessage("");
+  }
+
+  async function handleResidenceSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const nextBarangay = residenceBarangay.trim();
+
+    if (!residenceArea || !residenceDistrict || !nextBarangay) {
+      setResidenceMessage("Please complete your Davao area, district or municipality, and barangay.");
+      return;
+    }
+
+    if (!districtOptions.includes(residenceDistrict)) {
+      setResidenceMessage("Please choose a district or municipality from the list.");
+      return;
+    }
+
+    setSavingResidence(true);
+    setResidenceMessage("");
+
+    try {
+      await updateResidenceInfo({
+        residenceArea,
+        residenceDistrict,
+        residenceBarangay: nextBarangay,
+      });
+      setResidenceBarangay(nextBarangay);
+      setResidenceMessage("Residence details saved.");
+      if (isSetupFlow && setupRedirectTo) {
+        navigate(setupRedirectTo, { replace: true });
+      }
+    } catch (residenceError) {
+      setResidenceMessage(
+        residenceError instanceof Error ? residenceError.message : "Residence details could not be saved.",
+      );
+    } finally {
+      setSavingResidence(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
+      {isSetupFlow ? (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <h2 className="text-sm font-bold text-amber-950">Complete your profile to continue</h2>
+          <p className="mt-1 text-sm leading-6 text-amber-900">
+            Add your Davao area, district or municipality, and barangay. This stays on your profile and helps organize
+            local reports.
+          </p>
+        </section>
+      ) : null}
+
       <section className="rounded-lg border border-civic-line bg-white p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -120,6 +213,16 @@ export function ProfilePage() {
                 <CalendarDays size={14} aria-hidden="true" />
                 Joined {joinedDate}
               </p>
+              {profile?.residenceArea ? (
+                <p className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
+                  <MapPin size={14} aria-hidden="true" />
+                  <span>
+                    {profile.residenceBarangay ? `${profile.residenceBarangay}, ` : ""}
+                    {profile.residenceDistrict ? `${profile.residenceDistrict}, ` : ""}
+                    {profile.residenceArea}
+                  </span>
+                </p>
+              ) : null}
               {photoMessage ? (
                 <p className="mt-3 rounded-lg bg-civic-field px-3 py-2 text-xs font-semibold text-slate-600">
                   {photoMessage}
@@ -135,6 +238,85 @@ export function ProfilePage() {
             Submit Report
           </Link>
         </div>
+      </section>
+
+      <section className="rounded-lg border border-civic-line bg-white p-5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-civic-green">
+            <MapPin size={22} aria-hidden="true" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-civic-ink">Residence Details</h3>
+            <p className="text-sm text-slate-600">Used for local report relevance and area-based stats.</p>
+          </div>
+        </div>
+
+        <form className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={handleResidenceSubmit}>
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">Davao area</span>
+            <select
+              className="mt-2 h-11 w-full rounded-lg border border-civic-line bg-white px-3 text-sm outline-none focus:border-civic-green focus:ring-2 focus:ring-emerald-100"
+              value={residenceArea}
+              onChange={(event) => handleResidenceAreaChange(event.target.value)}
+            >
+              <option value="">Select area</option>
+              {davaoRegionAreas.map((area) => (
+                <option key={area} value={area}>
+                  {area}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">District / Municipality</span>
+            <select
+              className="mt-2 h-11 w-full rounded-lg border border-civic-line bg-white px-3 text-sm outline-none focus:border-civic-green focus:ring-2 focus:ring-emerald-100 disabled:bg-civic-field disabled:text-slate-400"
+              value={residenceDistrict}
+              onChange={(event) => {
+                setResidenceDistrict(event.target.value);
+                setResidenceMessage("");
+              }}
+              disabled={!residenceArea}
+            >
+              <option value="">Select location</option>
+              {districtOptions.map((district) => (
+                <option key={district} value={district}>
+                  {district}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">Barangay</span>
+            <input
+              className="mt-2 h-11 w-full rounded-lg border border-civic-line bg-white px-3 text-sm outline-none focus:border-civic-green focus:ring-2 focus:ring-emerald-100"
+              maxLength={80}
+              placeholder="Example: Buhangin"
+              value={residenceBarangay}
+              onChange={(event) => {
+                setResidenceBarangay(event.target.value);
+                setResidenceMessage("");
+              }}
+            />
+          </label>
+
+          <button
+            type="submit"
+            className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-lg bg-civic-green px-4 text-sm font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={savingResidence}
+          >
+            {savingResidence ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save size={17} aria-hidden="true" />}
+            {savingResidence ? "Saving..." : "Save"}
+          </button>
+        </form>
+
+        {residenceMessage ? (
+          <p className="mt-4 rounded-lg bg-civic-field px-3 py-2 text-sm font-semibold text-slate-600">
+            {residenceMessage}
+          </p>
+        ) : null}
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2">

@@ -60,6 +60,33 @@ service cloud.firestore {
           && data.photoPublicId.matches("^[A-Za-z0-9_./-]+$"));
     }
 
+    function validOptionalResidenceInfo(data) {
+      return !data.keys().hasAny([
+          "residenceArea",
+          "residenceDistrict",
+          "residenceBarangay"
+        ])
+        || (data.keys().hasAll([
+            "residenceArea",
+            "residenceDistrict",
+            "residenceBarangay"
+          ])
+          && data.residenceArea in [
+            "Davao City",
+            "Davao del Sur",
+            "Davao Occidental",
+            "Davao de Oro",
+            "Davao del Norte",
+            "Davao Oriental"
+          ]
+          && data.residenceDistrict is string
+          && data.residenceDistrict.size() >= 2
+          && data.residenceDistrict.size() <= 80
+          && data.residenceBarangay is string
+          && data.residenceBarangay.size() >= 2
+          && data.residenceBarangay.size() <= 80);
+    }
+
     function validProfile(uid) {
       return request.resource.data.keys().hasAll([
           "uid",
@@ -77,7 +104,10 @@ service cloud.firestore {
           "createdAt",
           "updatedAt",
           "photoUrl",
-          "photoPublicId"
+          "photoPublicId",
+          "residenceArea",
+          "residenceDistrict",
+          "residenceBarangay"
         ])
         && request.resource.data.uid == uid
         && request.resource.data.role == "citizen"
@@ -85,6 +115,7 @@ service cloud.firestore {
         && validOptionalString(request.resource.data.displayName, 80)
         && validOptionalCloudinaryPhotoUrl(request.resource.data)
         && validOptionalCloudinaryPhotoPublicId(request.resource.data)
+        && validOptionalResidenceInfo(request.resource.data)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
     }
@@ -303,11 +334,15 @@ service cloud.firestore {
             "displayName",
             "photoUrl",
             "photoPublicId",
+            "residenceArea",
+            "residenceDistrict",
+            "residenceBarangay",
             "updatedAt"
           ])
           && validOptionalString(request.resource.data.displayName, 80)
           && validOptionalCloudinaryPhotoUrl(request.resource.data)
           && validOptionalCloudinaryPhotoPublicId(request.resource.data)
+          && validOptionalResidenceInfo(request.resource.data)
           && request.resource.data.updatedAt == request.time);
       allow delete: if false;
 

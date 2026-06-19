@@ -12,6 +12,7 @@ import { useReports } from "../hooks/useReports";
 import { confirmReport, createReport } from "../lib/reports";
 import { useAuth } from "../lib/auth";
 import { uploadReportImage, validateReportImage } from "../lib/cloudinary";
+import { isCitizenProfileComplete } from "../lib/profile";
 import type { ReportCategory } from "../types/report";
 
 const excellentGpsAccuracyMeters = 25;
@@ -64,7 +65,7 @@ function formatDistance(meters: number) {
 
 export function SubmitReportPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { profile, user } = useAuth();
   const { confirmedReportIds, reports } = useReports(user?.uid);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<ReportCategory>("pothole");
@@ -127,6 +128,28 @@ export function SubmitReportPage() {
       .sort((first, second) => first.distanceMeters - second.distanceMeters)
       .slice(0, 3);
   }, [category, coordinates, hasPinnedLocation, reports]);
+
+  if (!isCitizenProfileComplete(profile)) {
+    return (
+      <section className="mx-auto max-w-2xl rounded-lg border border-civic-line bg-white p-6">
+        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-50 text-civic-green">
+          <MapPin size={24} aria-hidden="true" />
+        </div>
+        <h2 className="mt-5 text-2xl font-bold text-civic-ink">Complete your profile</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Add your Davao area, district or municipality, and barangay before submitting a report. This helps keep local
+          reports organized and relevant.
+        </p>
+        <Link
+          to="/profile"
+          state={{ setupProfile: true, from: "/submit" }}
+          className="mt-5 inline-flex h-11 items-center justify-center rounded-lg bg-civic-green px-4 text-sm font-bold text-white hover:bg-emerald-800"
+        >
+          Complete Profile
+        </Link>
+      </section>
+    );
+  }
 
   async function handleConfirmExisting(reportId: string) {
     if (!user) {
