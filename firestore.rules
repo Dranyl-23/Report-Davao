@@ -55,15 +55,14 @@ service cloud.firestore {
     function validOptionalCloudinaryImageUrl(data) {
       return !data.keys().hasAny(["imageUrl"])
         || (data.imageUrl is string
-          && data.imageUrl.size() <= 1000
-          && data.imageUrl.matches("^https://res\\.cloudinary\\.com/dh0xm7zdj/image/upload/.*"));
+          && data.imageUrl.size() <= 1500
+          && data.imageUrl.matches("^https://res\\.cloudinary\\.com/.+/image/upload/.*"));
     }
 
     function validOptionalCloudinaryPublicId(data) {
       return !data.keys().hasAny(["imagePublicId"])
         || (data.imagePublicId is string
-          && data.imagePublicId.size() <= 255
-          && data.imagePublicId.matches("^[A-Za-z0-9_./-]+$"));
+          && data.imagePublicId.size() <= 255);
     }
 
     function validOptionalCloudinaryPhotoUrl(data) {

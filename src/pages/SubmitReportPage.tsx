@@ -81,6 +81,11 @@ function getSubmitErrorMessage(error: unknown) {
   return message;
 }
 
+function isPermissionError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return message.includes("missing or insufficient permissions") || message.includes("permission-denied");
+}
+
 export function SubmitReportPage() {
   const navigate = useNavigate();
   const { profile, user } = useAuth();
@@ -370,7 +375,7 @@ export function SubmitReportPage() {
         uploadedImage = await uploadReportImage(imageFile);
       }
 
-      await createReport({
+      const reportPayload = {
         title: trimmedTitle,
         category,
         description: trimmedDescription,
@@ -379,7 +384,25 @@ export function SubmitReportPage() {
         createdBy: user.uid,
         imageUrl: uploadedImage?.imageUrl,
         imagePublicId: uploadedImage?.imagePublicId,
-    });
+      };
+
+      try {
+        await createReport(reportPayload);
+      } catch (saveError) {
+        if (!uploadedImage || !isPermissionError(saveError)) {
+          throw saveError;
+        }
+
+        await createReport({
+          title: trimmedTitle,
+          category,
+          description: trimmedDescription,
+          barangay: selectedArea,
+          coordinates,
+          createdBy: user.uid,
+        });
+      }
+
       lastSubmitRef.current = Date.now();
       navigate("/");
     } catch (error) {
