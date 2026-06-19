@@ -9,6 +9,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -23,8 +24,6 @@ import type {
   ReportReviewFlag,
   ReportStatus,
 } from "../types/report";
-
-type ReportLimitScope = "hour" | "day";
 
 interface FirestoreReport {
   title?: string;
@@ -62,26 +61,6 @@ interface FirestoreConfirmation {
   userId?: string;
   createdAt?: Timestamp;
 }
-
-interface FirestoreReportLimit {
-  count?: number;
-  scope?: ReportLimitScope;
-  uid?: string;
-  windowStart?: Timestamp;
-}
-
-const reportLimitRules = {
-  hour: {
-    label: "hour",
-    maxReports: 5,
-    windowMs: 60 * 60 * 1000,
-  },
-  day: {
-    label: "day",
-    maxReports: 20,
-    windowMs: 24 * 60 * 60 * 1000,
-  },
-} satisfies Record<ReportLimitScope, { label: string; maxReports: number; windowMs: number }>;
 
 const reportsCollection = collection(db, "reports");
 const confirmationsCollection = collection(db, "upvotes");
@@ -174,8 +153,6 @@ export function listenToConfirmations(
 
 export async function createReport(report: NewCivicReport) {
   const reportRef = doc(reportsCollection);
-  const hourLimitRef = doc(db, "users", report.createdBy, "reportLimits", "hour");
-  const dayLimitRef = doc(db, "users", report.createdBy, "reportLimits", "day");
   const reportData: Record<string, unknown> = {
     title: report.title.trim(),
     category: report.category,
@@ -198,50 +175,7 @@ export async function createReport(report: NewCivicReport) {
     reportData.imagePublicId = report.imagePublicId;
   }
 
-  await runTransaction(db, async (transaction) => {
-    const [hourLimitSnap, dayLimitSnap] = await Promise.all([
-      transaction.get(hourLimitRef),
-      transaction.get(dayLimitRef),
-    ]);
-    const nowMs = Date.now() - 5000;
-    const nextHourLimit = getNextReportLimit("hour", hourLimitSnap.data() as FirestoreReportLimit | undefined, nowMs);
-    const nextDayLimit = getNextReportLimit("day", dayLimitSnap.data() as FirestoreReportLimit | undefined, nowMs);
-
-    transaction.set(reportRef, reportData);
-    transaction.set(hourLimitRef, {
-      uid: report.createdBy,
-      scope: "hour",
-      windowStart: nextHourLimit.windowStart,
-      count: nextHourLimit.count,
-      updatedAt: serverTimestamp(),
-    });
-    transaction.set(dayLimitRef, {
-      uid: report.createdBy,
-      scope: "day",
-      windowStart: nextDayLimit.windowStart,
-      count: nextDayLimit.count,
-      updatedAt: serverTimestamp(),
-    });
-  });
-}
-
-function getNextReportLimit(scope: ReportLimitScope, data: FirestoreReportLimit | undefined, nowMs: number) {
-  const limitRule = reportLimitRules[scope];
-  const currentWindowStartMs = data?.scope === scope ? data.windowStart?.toMillis() : undefined;
-  const isActiveWindow =
-    typeof currentWindowStartMs === "number" && nowMs - currentWindowStartMs < limitRule.windowMs;
-  const nextCount = isActiveWindow ? (data?.count ?? 0) + 1 : 1;
-
-  if (nextCount > limitRule.maxReports) {
-    throw new Error(
-      `You reached the limit of ${limitRule.maxReports} reports per ${limitRule.label}. Please try again later.`,
-    );
-  }
-
-  return {
-    count: nextCount,
-    windowStart: Timestamp.fromMillis(isActiveWindow ? currentWindowStartMs : nowMs),
-  };
+  await setDoc(reportRef, reportData);
 }
 
 export async function confirmReport(reportId: string, userId: string) {

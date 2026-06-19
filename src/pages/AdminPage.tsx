@@ -77,6 +77,7 @@ const roles: UserRole[] = ["citizen", "staff", "lgu-admin", "super-admin"];
 const departments = ["Engineering", "CENRO", "Traffic", "DRRMO", "Barangay Response", "General Services"];
 const lguPlans: LguPlan[] = ["free-pilot", "basic", "pro", "premium"];
 const lguStatuses: LguStatus[] = ["pilot", "active", "paused"];
+const allowedImageTypeOptions = ["image/jpeg", "image/png", "image/webp"];
 
 const defaultSystemSettings: SystemSettings = {
   allowedImageTypes: ["image/jpeg", "image/png", "image/webp"],
@@ -166,6 +167,30 @@ function exportReportsCsv(reports: CivicReport[]) {
   URL.revokeObjectURL(url);
 }
 
+function exportUsersCsv(users: AdminUserProfile[]) {
+  const headers = ["UID", "Name", "Email", "Role", "Status", "Area", "District", "Barangay", "Joined"];
+  const rows = users.map((adminUser) => [
+    adminUser.uid,
+    `"${(adminUser.displayName ?? "Report Davao Citizen").replace(/"/g, '""')}"`,
+    adminUser.email ?? "",
+    adminUser.role,
+    adminUser.disabled ? "disabled" : "active",
+    adminUser.residenceArea ?? "",
+    `"${(adminUser.residenceDistrict ?? "").replace(/"/g, '""')}"`,
+    `"${(adminUser.residenceBarangay ?? "").replace(/"/g, '""')}"`,
+    adminUser.createdAt ? new Date(adminUser.createdAt).toLocaleString("en-PH") : "",
+  ]);
+
+  const csvContent = [headers, ...rows].map((row) => row.join(",")).join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `report-davao-users-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function smallBadge(tone: "green" | "blue" | "amber" | "red" | "slate", label: string, key = label) {
   const styles = {
     amber: "bg-amber-50 text-amber-800 ring-amber-200",
@@ -184,6 +209,7 @@ export function AdminPage() {
   const [activeSection, setActiveSection] = useState<AdminSection>("dashboard");
   const [adminUsers, setAdminUsers] = useState<AdminUserProfile[]>([]);
   const [lgus, setLgus] = useState<LguAccount[]>([]);
+  const [confirmations, setConfirmations] = useState<AdminConfirmation[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [statusLogs, setStatusLogs] = useState<AuditLog[]>([]);
   const [systemSettings, setSystemSettings] = useState<SystemSettings>(defaultSystemSettings);
@@ -191,15 +217,32 @@ export function AdminPage() {
   const [adminErrors, setAdminErrors] = useState<string[]>([]);
   const [actionMessage, setActionMessage] = useState("");
   const [selectedReport, setSelectedReport] = useState<CivicReport | null>(null);
+  const [selectedUser, setSelectedUser] = useState<AdminUserProfile | null>(null);
   const [reportSearch, setReportSearch] = useState("");
   const [reportStatusFilter, setReportStatusFilter] = useState<ReportStatus | "all">("all");
   const [reportCategoryFilter, setReportCategoryFilter] = useState<ReportCategory | "all">("all");
   const [reportAreaFilter, setReportAreaFilter] = useState("all");
   const [reportDateFilter, setReportDateFilter] = useState<DateFilter>("all");
+  const [selectedReportIds, setSelectedReportIds] = useState<string[]>([]);
   const [userSearch, setUserSearch] = useState("");
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [lguDraft, setLguDraft] = useState<LguAccountDraft>(emptyLguDraft);
   const [systemDraft, setSystemDraft] = useState<SystemSettings>(defaultSystemSettings);
+  const [settingsBlockedWordsDraft, setSettingsBlockedWordsDraft] = useState("");
   const [workflowDraft, setWorkflowDraft] = useState(defaultWorkflowSettings.rejectionReasons.join("\n"));
+  const [auditSearch, setAuditSearch] = useState("");
+  const [auditActionFilter, setAuditActionFilter] = useState("all");
+  const [disableReasonDraft, setDisableReasonDraft] = useState("");
+  const [reportAdminDraft, setReportAdminDraft] = useState({
+    assignedDepartment: "",
+    assignedLguId: "",
+    assignedStaff: "",
+    duplicateOfReportId: "",
+    moderationReason: "",
+    responseNote: "",
+    reviewFlag: "active" as ReportReviewFlag,
+    slaDueAt: "",
+  });
   const [pendingAction, setPendingAction] = useState<PendingAdminAction | null>(null);
   const [pendingActionLoading, setPendingActionLoading] = useState(false);
 
@@ -207,11 +250,13 @@ export function AdminPage() {
     const pushError = (message: string) => setAdminErrors((current) => Array.from(new Set([...current, message])));
     const unsubUsers = listenToAdminUsers(setAdminUsers, pushError);
     const unsubLgus = listenToLgus(setLgus, pushError);
+    const unsubConfirmations = listenToAdminConfirmations(setConfirmations, pushError);
     const unsubAudit = listenToAuditLogs(setAuditLogs, pushError);
     const unsubStatus = listenToStatusLogs(setStatusLogs, pushError);
     const unsubSystem = listenToSystemSettings((settings) => {
       setSystemSettings(settings);
       setSystemDraft(settings);
+      setSettingsBlockedWordsDraft(settings.blockedWords.join("\n"));
     }, pushError);
     const unsubWorkflow = listenToWorkflowSettings((settings) => {
       setWorkflowSettings(settings);
@@ -221,12 +266,39 @@ export function AdminPage() {
     return () => {
       unsubUsers();
       unsubLgus();
+      unsubConfirmations();
       unsubAudit();
       unsubStatus();
       unsubSystem();
       unsubWorkflow();
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedUser) {
+      setDisableReasonDraft("");
+      return;
+    }
+
+    setDisableReasonDraft(selectedUser.disableReason ?? "");
+  }, [selectedUser]);
+
+  useEffect(() => {
+    if (!selectedReport) {
+      return;
+    }
+
+    setReportAdminDraft({
+      assignedDepartment: selectedReport.assignedDepartment ?? "",
+      assignedLguId: selectedReport.assignedLguId ?? "",
+      assignedStaff: selectedReport.assignedStaff ?? "",
+      duplicateOfReportId: selectedReport.duplicateOfReportId ?? "",
+      moderationReason: selectedReport.moderationReason ?? "",
+      responseNote: selectedReport.responseNote ?? "",
+      reviewFlag: selectedReport.reviewFlag ?? "active",
+      slaDueAt: selectedReport.slaDueAt ?? "",
+    });
+  }, [selectedReport]);
 
   const filteredReports = useMemo(() => {
     const normalizedSearch = normalize(reportSearch);
@@ -262,6 +334,53 @@ export function AdminPage() {
       .slice(0, 100);
   }, [auditLogs, statusLogs]);
 
+  const auditActions = useMemo(() => {
+    return Array.from(new Set(allAuditLogs.map((log) => log.action))).sort();
+  }, [allAuditLogs]);
+
+  const filteredAuditLogs = useMemo(() => {
+    const normalizedSearch = normalize(auditSearch);
+
+    return allAuditLogs.filter((log) => {
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        normalize(`${log.summary} ${log.action} ${log.targetType} ${log.targetId} ${log.actorId}`).includes(normalizedSearch);
+      const matchesAction = auditActionFilter === "all" || log.action === auditActionFilter;
+
+      return matchesSearch && matchesAction;
+    });
+  }, [allAuditLogs, auditActionFilter, auditSearch]);
+
+  const reportsByUser = useMemo(() => {
+    return displayReports.reduce<Record<string, CivicReport[]>>((groups, report) => {
+      if (!report.createdBy) {
+        return groups;
+      }
+
+      const userReports = groups[report.createdBy] ?? [];
+      userReports.push(report);
+      groups[report.createdBy] = userReports;
+      return groups;
+    }, {});
+  }, [displayReports]);
+
+  const confirmationsByUser = useMemo(() => {
+    return confirmations.reduce<Record<string, AdminConfirmation[]>>((groups, confirmation) => {
+      const userConfirmations = groups[confirmation.userId] ?? [];
+      userConfirmations.push(confirmation);
+      groups[confirmation.userId] = userConfirmations;
+      return groups;
+    }, {});
+  }, [confirmations]);
+
+  const selectedReportsForBulk = useMemo(() => {
+    return filteredReports.filter((report) => selectedReportIds.includes(report.id));
+  }, [filteredReports, selectedReportIds]);
+
+  const selectedUsersForBulk = useMemo(() => {
+    return filteredUsers.filter((adminUser) => selectedUserIds.includes(adminUser.uid));
+  }, [filteredUsers, selectedUserIds]);
+
   const reportStats = useMemo(() => {
     return {
       total: displayReports.length,
@@ -290,19 +409,20 @@ export function AdminPage() {
 
   async function handleUserUpdate(uid: string, fields: Parameters<typeof updateUserAdminFields>[1]) {
     setActionMessage("");
+    const nextFields = fields.disabled === false ? { ...fields, disableReason: "" } : fields;
 
-    if (uid === user?.uid && fields.disabled === true) {
+    if (uid === user?.uid && nextFields.disabled === true) {
       setActionMessage("You cannot disable your own super admin account.");
       return;
     }
 
-    if (uid === user?.uid && fields.role && fields.role !== "super-admin") {
+    if (uid === user?.uid && nextFields.role && nextFields.role !== "super-admin") {
       setActionMessage("You cannot downgrade your own super admin role.");
       return;
     }
 
     try {
-      await updateUserAdminFields(uid, fields);
+      await updateUserAdminFields(uid, nextFields);
       setActionMessage("User account updated.");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : "User update failed.");
@@ -329,8 +449,23 @@ export function AdminPage() {
   }
 
   async function handleSaveSystemSettings() {
+    const blockedWords = settingsBlockedWordsDraft
+      .split("\n")
+      .map((word) => word.trim().toLowerCase())
+      .filter(Boolean);
+    const uniqueBlockedWords = Array.from(new Set(blockedWords));
+    const normalizedSettings: SystemSettings = {
+      ...systemDraft,
+      allowedImageTypes: systemDraft.allowedImageTypes.length > 0 ? systemDraft.allowedImageTypes : defaultSystemSettings.allowedImageTypes,
+      blockedWords: uniqueBlockedWords,
+      duplicateRadiusMeters: Math.round(systemDraft.duplicateRadiusMeters),
+      maxImageSizeMb: Math.round(systemDraft.maxImageSizeMb),
+      reportLimitPerDay: Math.round(systemDraft.reportLimitPerDay),
+      reportLimitPerHour: Math.round(systemDraft.reportLimitPerHour),
+    };
+
     try {
-      await saveSystemSettings(systemDraft);
+      await saveSystemSettings(normalizedSettings);
       setActionMessage("System settings saved.");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : "System settings save failed.");
@@ -361,6 +496,8 @@ export function AdminPage() {
     try {
       await pendingAction.onConfirm();
       setPendingAction(null);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Admin action failed.");
     } finally {
       setPendingActionLoading(false);
     }
@@ -368,6 +505,115 @@ export function AdminPage() {
 
   function requestDangerConfirmation(action: PendingAdminAction) {
     setPendingAction(action);
+  }
+
+  function toggleReportSelection(reportId: string) {
+    setSelectedReportIds((current) =>
+      current.includes(reportId) ? current.filter((id) => id !== reportId) : [...current, reportId],
+    );
+  }
+
+  function toggleUserSelection(uid: string) {
+    setSelectedUserIds((current) =>
+      current.includes(uid) ? current.filter((id) => id !== uid) : [...current, uid],
+    );
+  }
+
+  function toggleImageType(imageType: string) {
+    setSystemDraft((draft) => {
+      const hasType = draft.allowedImageTypes.includes(imageType);
+      const allowedImageTypes = hasType
+        ? draft.allowedImageTypes.filter((type) => type !== imageType)
+        : [...draft.allowedImageTypes, imageType];
+
+      return { ...draft, allowedImageTypes };
+    });
+  }
+
+  async function handleBulkReportReviewFlag(reviewFlag: Exclude<ReportReviewFlag, "active">) {
+    const reportsToUpdate = selectedReportsForBulk;
+
+    if (usingSampleData) {
+      setActionMessage("Live reports are required before bulk moderation can be saved.");
+      return;
+    }
+
+    await Promise.all(
+      reportsToUpdate.map((report) =>
+        updateReportAdminFields(
+          report.id,
+          {
+            moderationReason: `Bulk marked as ${humanize(reviewFlag)}.`,
+            reviewFlag,
+          },
+          `Bulk marked as ${humanize(reviewFlag)}.`,
+        ),
+      ),
+    );
+    setSelectedReportIds([]);
+    setActionMessage(`${reportsToUpdate.length} reports marked as ${humanize(reviewFlag)}.`);
+  }
+
+  async function handleBulkDisableUsers(disabled: boolean) {
+    const usersToUpdate = selectedUsersForBulk.filter((adminUser) => adminUser.uid !== user?.uid);
+
+    await Promise.all(
+      usersToUpdate.map((adminUser) =>
+        updateUserAdminFields(adminUser.uid, {
+          disabled,
+          disableReason: disabled ? "Bulk restricted by super admin." : "",
+        }),
+      ),
+    );
+    setSelectedUserIds([]);
+    setActionMessage(`${usersToUpdate.length} users ${disabled ? "disabled" : "reactivated"}.`);
+  }
+
+  async function handleSaveReportAdminDraft() {
+    if (!selectedReport) {
+      return;
+    }
+
+    await handleReportUpdate(
+      selectedReport,
+      {
+        assignedDepartment: reportAdminDraft.assignedDepartment,
+        assignedLguId: reportAdminDraft.assignedLguId,
+        assignedStaff: reportAdminDraft.assignedStaff.trim(),
+        duplicateOfReportId: reportAdminDraft.duplicateOfReportId.trim(),
+        moderationReason: reportAdminDraft.moderationReason.trim(),
+        responseNote: reportAdminDraft.responseNote.trim(),
+        reviewFlag: reportAdminDraft.reviewFlag,
+        slaDueAt: reportAdminDraft.slaDueAt,
+      },
+      "Report moderation and assignment details updated.",
+    );
+    setSelectedReport((current) =>
+      current
+        ? {
+            ...current,
+            ...reportAdminDraft,
+          }
+        : current,
+    );
+  }
+
+  async function handleSelectedUserRestriction(disabled: boolean) {
+    if (!selectedUser) {
+      return;
+    }
+
+    const disableReason = disabled ? disableReasonDraft.trim() || "Restricted by super admin." : "";
+
+    await handleUserUpdate(selectedUser.uid, {
+      disabled,
+      disableReason,
+    });
+    setSelectedUser({
+      ...selectedUser,
+      disabled,
+      disableReason,
+    });
   }
 
   function renderDashboard() {
@@ -484,9 +730,47 @@ export function AdminPage() {
           </div>
         </section>
 
+        {selectedReportIds.length > 0 ? (
+          <section className="flex flex-col gap-3 rounded-lg border border-civic-line bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-bold text-civic-ink">{selectedReportsForBulk.length} reports selected</p>
+            <div className="flex flex-wrap gap-2">
+              <button className="h-10 rounded-lg border border-civic-line bg-civic-field px-3 text-xs font-bold text-civic-ink hover:bg-white" onClick={() => exportReportsCsv(selectedReportsForBulk)} type="button">
+                Export selected
+              </button>
+              {(["duplicate", "spam", "invalid"] as const).map((flag) => (
+                <button
+                  key={flag}
+                  className="h-10 rounded-lg bg-civic-red px-3 text-xs font-bold text-white hover:bg-red-700"
+                  onClick={() =>
+                    requestDangerConfirmation({
+                      confirmLabel: `Mark ${humanize(flag)}`,
+                      description: `This will mark ${selectedReportsForBulk.length} selected reports as ${humanize(flag)}.`,
+                      onConfirm: () => handleBulkReportReviewFlag(flag),
+                      title: "Confirm bulk report moderation",
+                      tone: "danger",
+                    })
+                  }
+                  type="button"
+                >
+                  Mark {humanize(flag)}
+                </button>
+              ))}
+              <button className="h-10 rounded-lg border border-civic-line bg-white px-3 text-xs font-bold text-slate-700 hover:bg-civic-field" onClick={() => setSelectedReportIds([])} type="button">
+                Clear
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         <section className="overflow-hidden rounded-lg border border-civic-line bg-white">
-          <div className="min-w-[980px]">
-            <div className="grid grid-cols-[1.2fr_0.7fr_0.7fr_0.65fr_0.9fr_0.8fr] gap-3 border-b border-civic-line bg-civic-field px-4 py-3 text-xs font-bold uppercase text-slate-500">
+          <div className="min-w-[1100px]">
+            <div className="grid grid-cols-[44px_1.2fr_0.7fr_0.7fr_0.65fr_0.9fr_0.8fr] gap-3 border-b border-civic-line bg-civic-field px-4 py-3 text-xs font-bold uppercase text-slate-500">
+              <input
+                aria-label="Select all visible reports"
+                checked={filteredReports.length > 0 && filteredReports.every((report) => selectedReportIds.includes(report.id))}
+                onChange={(event) => setSelectedReportIds(event.target.checked ? filteredReports.map((report) => report.id) : [])}
+                type="checkbox"
+              />
               <span>Report</span>
               <span>Area</span>
               <span>Status</span>
@@ -495,7 +779,13 @@ export function AdminPage() {
               <span>Action</span>
             </div>
             {filteredReports.map((report) => (
-              <div key={report.id} className="grid grid-cols-[1.2fr_0.7fr_0.7fr_0.65fr_0.9fr_0.8fr] items-center gap-3 border-b border-civic-line px-4 py-4 last:border-b-0">
+              <div key={report.id} className="grid grid-cols-[44px_1.2fr_0.7fr_0.7fr_0.65fr_0.9fr_0.8fr] items-center gap-3 border-b border-civic-line px-4 py-4 last:border-b-0">
+                <input
+                  aria-label={`Select ${report.title}`}
+                  checked={selectedReportIds.includes(report.id)}
+                  onChange={() => toggleReportSelection(report.id)}
+                  type="checkbox"
+                />
                 <div>
                   <p className="text-sm font-bold text-civic-ink">{report.title}</p>
                   <p className="mt-1 text-xs text-slate-500">{report.id} | {formatDate(report.createdAt)}</p>
@@ -573,8 +863,21 @@ export function AdminPage() {
     return (
       <div className="space-y-4">
         <section className="rounded-lg border border-civic-line bg-white p-4">
-          <h3 className="text-lg font-bold text-civic-ink">User Management</h3>
-          <p className="text-sm text-slate-600">View profiles, restrict accounts, and assign platform roles.</p>
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-civic-ink">User Management</h3>
+              <p className="text-sm text-slate-600">View profiles, restrict accounts, and assign platform roles.</p>
+            </div>
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-civic-line bg-civic-field px-3 text-sm font-bold text-civic-ink hover:bg-white"
+              disabled={filteredUsers.length === 0}
+              onClick={() => exportUsersCsv(filteredUsers)}
+              type="button"
+            >
+              <Download size={17} aria-hidden="true" />
+              Export users
+            </button>
+          </div>
           <label className="relative mt-4 block max-w-xl">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -586,9 +889,59 @@ export function AdminPage() {
           </label>
         </section>
 
+        {selectedUserIds.length > 0 ? (
+          <section className="flex flex-col gap-3 rounded-lg border border-civic-line bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-bold text-civic-ink">{selectedUsersForBulk.length} users selected</p>
+            <div className="flex flex-wrap gap-2">
+              <button className="h-10 rounded-lg border border-civic-line bg-civic-field px-3 text-xs font-bold text-civic-ink hover:bg-white" onClick={() => exportUsersCsv(selectedUsersForBulk)} type="button">
+                Export selected
+              </button>
+              <button
+                className="h-10 rounded-lg bg-civic-red px-3 text-xs font-bold text-white hover:bg-red-700"
+                onClick={() =>
+                  requestDangerConfirmation({
+                    confirmLabel: "Disable users",
+                    description: `This will restrict ${selectedUsersForBulk.filter((adminUser) => adminUser.uid !== user?.uid).length} selected users.`,
+                    onConfirm: () => handleBulkDisableUsers(true),
+                    title: "Confirm bulk user restriction",
+                    tone: "danger",
+                  })
+                }
+                type="button"
+              >
+                Disable selected
+              </button>
+              <button
+                className="h-10 rounded-lg bg-civic-green px-3 text-xs font-bold text-white hover:bg-emerald-700"
+                onClick={() =>
+                  requestDangerConfirmation({
+                    confirmLabel: "Reactivate users",
+                    description: `This will reactivate ${selectedUsersForBulk.filter((adminUser) => adminUser.uid !== user?.uid).length} selected users.`,
+                    onConfirm: () => handleBulkDisableUsers(false),
+                    title: "Confirm bulk user reactivation",
+                    tone: "normal",
+                  })
+                }
+                type="button"
+              >
+                Reactivate selected
+              </button>
+              <button className="h-10 rounded-lg border border-civic-line bg-white px-3 text-xs font-bold text-slate-700 hover:bg-civic-field" onClick={() => setSelectedUserIds([])} type="button">
+                Clear
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         <section className="overflow-hidden rounded-lg border border-civic-line bg-white">
-          <div className="min-w-[900px]">
-            <div className="grid grid-cols-[1fr_1fr_0.7fr_0.7fr_0.8fr] gap-3 border-b border-civic-line bg-civic-field px-4 py-3 text-xs font-bold uppercase text-slate-500">
+          <div className="min-w-[1040px]">
+            <div className="grid grid-cols-[44px_1fr_1fr_0.7fr_0.7fr_0.8fr] gap-3 border-b border-civic-line bg-civic-field px-4 py-3 text-xs font-bold uppercase text-slate-500">
+              <input
+                aria-label="Select all visible users"
+                checked={filteredUsers.some((adminUser) => adminUser.uid !== user?.uid) && filteredUsers.filter((adminUser) => adminUser.uid !== user?.uid).every((adminUser) => selectedUserIds.includes(adminUser.uid))}
+                onChange={(event) => setSelectedUserIds(event.target.checked ? filteredUsers.filter((adminUser) => adminUser.uid !== user?.uid).map((adminUser) => adminUser.uid) : [])}
+                type="checkbox"
+              />
               <span>User</span>
               <span>Residence</span>
               <span>Role</span>
@@ -599,7 +952,14 @@ export function AdminPage() {
               const isCurrentUser = adminUser.uid === user?.uid;
 
               return (
-                <div key={adminUser.uid} className="grid grid-cols-[1fr_1fr_0.7fr_0.7fr_0.8fr] items-center gap-3 border-b border-civic-line px-4 py-4 last:border-b-0">
+                <div key={adminUser.uid} className="grid grid-cols-[44px_1fr_1fr_0.7fr_0.7fr_0.8fr] items-center gap-3 border-b border-civic-line px-4 py-4 last:border-b-0">
+                  <input
+                    aria-label={`Select ${adminUser.email ?? adminUser.uid}`}
+                    checked={selectedUserIds.includes(adminUser.uid)}
+                    disabled={isCurrentUser}
+                    onChange={() => toggleUserSelection(adminUser.uid)}
+                    type="checkbox"
+                  />
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-bold text-civic-ink">{adminUser.displayName || "Report Davao Citizen"}</p>
@@ -607,6 +967,9 @@ export function AdminPage() {
                     </div>
                     <p className="mt-1 break-all text-xs text-slate-500">{adminUser.email ?? adminUser.uid}</p>
                     <p className="mt-1 text-xs text-slate-500">Joined {formatDate(adminUser.createdAt)}</p>
+                    <button className="mt-2 text-xs font-bold text-civic-green hover:underline" onClick={() => setSelectedUser(adminUser)} type="button">
+                      View profile
+                    </button>
                   </div>
                   <p className="text-sm font-semibold text-slate-700">
                     {[adminUser.residenceArea, adminUser.residenceDistrict, adminUser.residenceBarangay].filter(Boolean).join(" | ") || "Not completed"}
@@ -640,7 +1003,11 @@ export function AdminPage() {
                         description: adminUser.disabled
                           ? `This will reactivate ${adminUser.email ?? adminUser.uid}.`
                           : `This will restrict ${adminUser.email ?? adminUser.uid} from using protected citizen actions.`,
-                        onConfirm: () => handleUserUpdate(adminUser.uid, { disabled: !adminUser.disabled }),
+                        onConfirm: () =>
+                          handleUserUpdate(adminUser.uid, {
+                            disabled: !adminUser.disabled,
+                            disableReason: adminUser.disabled ? "" : "Restricted by super admin.",
+                          }),
                         title: adminUser.disabled ? "Confirm account reactivation" : "Confirm account restriction",
                         tone: adminUser.disabled ? "normal" : "danger",
                       })
@@ -772,8 +1139,23 @@ export function AdminPage() {
       <section className="rounded-lg border border-civic-line bg-white p-5">
         <h3 className="text-lg font-bold text-civic-ink">Audit Logs</h3>
         <p className="text-sm text-slate-600">Tracks status changes, role updates, LGU edits, and settings changes.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_260px]">
+          <label className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              className="h-11 w-full rounded-lg border border-civic-line bg-white pl-9 pr-3 text-sm outline-none focus:border-civic-green focus:ring-2 focus:ring-emerald-100"
+              onChange={(event) => setAuditSearch(event.target.value)}
+              placeholder="Search audit logs"
+              value={auditSearch}
+            />
+          </label>
+          <select className="h-11 rounded-lg border border-civic-line bg-white px-3 text-sm font-semibold" onChange={(event) => setAuditActionFilter(event.target.value)} value={auditActionFilter}>
+            <option value="all">All actions</option>
+            {auditActions.map((action) => <option key={action} value={action}>{humanize(action)}</option>)}
+          </select>
+        </div>
         <div className="mt-4 space-y-3">
-          {allAuditLogs.map((log) => (
+          {filteredAuditLogs.map((log) => (
             <div key={`${log.action}-${log.id}`} className="grid gap-3 rounded-lg border border-civic-line p-3 md:grid-cols-[1fr_auto]">
               <div>
                 <p className="text-sm font-bold text-civic-ink">{log.summary}</p>
@@ -782,7 +1164,7 @@ export function AdminPage() {
               <p className="text-xs font-bold text-slate-500">{formatDate(log.createdAt)}</p>
             </div>
           ))}
-          {allAuditLogs.length === 0 ? <p className="rounded-lg bg-civic-field p-3 text-sm font-semibold text-slate-600">No audit logs recorded yet.</p> : null}
+          {filteredAuditLogs.length === 0 ? <p className="rounded-lg bg-civic-field p-3 text-sm font-semibold text-slate-600">No audit logs match the current filter.</p> : null}
         </div>
       </section>
     );
@@ -806,9 +1188,39 @@ export function AdminPage() {
             Duplicate detection radius
             <input className="h-11 rounded-lg border border-civic-line px-3 text-sm" min={25} onChange={(event) => setSystemDraft((draft) => ({ ...draft, duplicateRadiusMeters: Number(event.target.value) }))} type="number" value={systemDraft.duplicateRadiusMeters} />
           </label>
+          <label className="grid gap-2 text-sm font-bold text-civic-ink">
+            Max photo size (MB)
+            <input className="h-11 rounded-lg border border-civic-line px-3 text-sm" max={10} min={1} onChange={(event) => setSystemDraft((draft) => ({ ...draft, maxImageSizeMb: Number(event.target.value) }))} type="number" value={systemDraft.maxImageSizeMb} />
+          </label>
           <label className="flex items-center gap-3 rounded-lg border border-civic-line bg-civic-field px-3 py-3 text-sm font-bold text-civic-ink">
             <input checked={systemDraft.pwaInstallPrompt} onChange={(event) => setSystemDraft((draft) => ({ ...draft, pwaInstallPrompt: event.target.checked }))} type="checkbox" />
             PWA install prompt enabled
+          </label>
+          <label className="flex items-center gap-3 rounded-lg border border-civic-line bg-civic-field px-3 py-3 text-sm font-bold text-civic-ink">
+            <input checked={systemDraft.maintenanceMode} onChange={(event) => setSystemDraft((draft) => ({ ...draft, maintenanceMode: event.target.checked }))} type="checkbox" />
+            Maintenance mode
+          </label>
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-civic-line bg-civic-field p-4">
+            <p className="text-sm font-bold text-civic-ink">Allowed photo formats</p>
+            <div className="mt-3 grid gap-2">
+              {allowedImageTypeOptions.map((imageType) => (
+                <label key={imageType} className="flex items-center gap-3 rounded-lg bg-white px-3 py-2 text-sm font-bold text-slate-700">
+                  <input checked={systemDraft.allowedImageTypes.includes(imageType)} onChange={() => toggleImageType(imageType)} type="checkbox" />
+                  {imageType.replace("image/", "").toUpperCase()}
+                </label>
+              ))}
+            </div>
+          </div>
+          <label className="grid gap-2 text-sm font-bold text-civic-ink">
+            Blocked words / spam keywords
+            <textarea
+              className="min-h-36 rounded-lg border border-civic-line p-3 text-sm outline-none focus:border-civic-green focus:ring-2 focus:ring-emerald-100"
+              onChange={(event) => setSettingsBlockedWordsDraft(event.target.value)}
+              placeholder="One word or phrase per line"
+              value={settingsBlockedWordsDraft}
+            />
           </label>
         </div>
         <div className="mt-5 rounded-lg bg-civic-field p-4">
@@ -820,6 +1232,115 @@ export function AdminPage() {
           Save settings
         </button>
       </section>
+    );
+  }
+
+  function renderSelectedUserDrawer() {
+    if (!selectedUser) {
+      return null;
+    }
+
+    const submittedReports = reportsByUser[selectedUser.uid] ?? [];
+    const userConfirmations = confirmationsByUser[selectedUser.uid] ?? [];
+    const recentActivity = allAuditLogs
+      .filter((log) => log.actorId === selectedUser.uid || log.targetId === selectedUser.uid)
+      .slice(0, 6);
+
+    return (
+      <div className="fixed inset-0 z-[1000] flex justify-end bg-slate-950/40" role="presentation" onMouseDown={() => setSelectedUser(null)}>
+        <section className="h-full w-full max-w-2xl overflow-y-auto bg-white p-5 shadow-xl" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-civic-green">Citizen profile</p>
+              <h3 className="mt-1 text-xl font-bold text-civic-ink">{selectedUser.displayName || "Report Davao Citizen"}</h3>
+              <p className="mt-1 break-all text-sm font-semibold text-slate-600">{selectedUser.email ?? selectedUser.uid}</p>
+            </div>
+            <button className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-civic-line bg-civic-field text-civic-ink hover:bg-white" onClick={() => setSelectedUser(null)} type="button" aria-label="Close user details">
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-civic-line bg-civic-field p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Residence</p>
+              <p className="mt-2 text-sm font-bold text-civic-ink">
+                {[selectedUser.residenceArea, selectedUser.residenceDistrict, selectedUser.residenceBarangay].filter(Boolean).join(" | ") || "Not completed"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-civic-line bg-civic-field p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Account</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {smallBadge(selectedUser.disabled ? "red" : "green", selectedUser.disabled ? "Disabled" : "Active")}
+                {smallBadge(selectedUser.role === "super-admin" ? "amber" : "blue", humanize(selectedUser.role))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-civic-line bg-white p-4">
+              <p className="text-2xl font-bold text-civic-ink">{submittedReports.length}</p>
+              <p className="text-sm font-semibold text-slate-600">Submitted reports</p>
+            </div>
+            <div className="rounded-lg border border-civic-line bg-white p-4">
+              <p className="text-2xl font-bold text-civic-ink">{userConfirmations.length}</p>
+              <p className="text-sm font-semibold text-slate-600">Confirmed reports</p>
+            </div>
+          </div>
+
+          <section className="mt-5 rounded-lg border border-civic-line bg-white p-4">
+            <h4 className="text-base font-bold text-civic-ink">Restriction Reason</h4>
+            <textarea
+              className="mt-3 min-h-24 w-full rounded-lg border border-civic-line p-3 text-sm outline-none focus:border-civic-green focus:ring-2 focus:ring-emerald-100"
+              onChange={(event) => setDisableReasonDraft(event.target.value)}
+              placeholder="Document why this account was disabled or investigated"
+              value={disableReasonDraft}
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="inline-flex h-10 items-center justify-center rounded-lg border border-civic-line bg-civic-field px-3 text-xs font-bold text-civic-ink hover:bg-white" onClick={() => handleUserUpdate(selectedUser.uid, { disableReason: disableReasonDraft.trim() })} type="button">
+                Save reason only
+              </button>
+              <button
+                className={`inline-flex h-10 items-center justify-center rounded-lg px-3 text-xs font-bold text-white ${selectedUser.disabled ? "bg-civic-green hover:bg-emerald-700" : "bg-civic-red hover:bg-red-700"}`}
+                onClick={() =>
+                  requestDangerConfirmation({
+                    confirmLabel: selectedUser.disabled ? "Reactivate account" : "Disable account",
+                    description: selectedUser.disabled ? "This will restore the citizen account." : "This will restrict the citizen from protected actions.",
+                    onConfirm: () => handleSelectedUserRestriction(!selectedUser.disabled),
+                    title: selectedUser.disabled ? "Confirm reactivation" : "Confirm account restriction",
+                    tone: selectedUser.disabled ? "normal" : "danger",
+                  })
+                }
+                type="button"
+              >
+                {selectedUser.disabled ? "Reactivate account" : "Disable account"}
+              </button>
+            </div>
+          </section>
+
+          <section className="mt-5 rounded-lg border border-civic-line bg-white p-4">
+            <h4 className="text-base font-bold text-civic-ink">Recent Submitted Reports</h4>
+            <div className="mt-3 space-y-2">
+              {submittedReports.slice(0, 5).map((report) => (
+                <button key={report.id} className="block w-full rounded-lg bg-civic-field p-3 text-left hover:bg-emerald-50" onClick={() => { setSelectedUser(null); setSelectedReport(report); }} type="button">
+                  <p className="text-sm font-bold text-civic-ink">{report.title}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">{report.id} | {humanize(report.status)} | {formatDate(report.createdAt)}</p>
+                </button>
+              ))}
+              {submittedReports.length === 0 ? <p className="rounded-lg bg-civic-field p-3 text-sm font-semibold text-slate-600">No submitted reports yet.</p> : null}
+            </div>
+          </section>
+
+          <section className="mt-5 rounded-lg border border-civic-line bg-white p-4">
+            <h4 className="text-base font-bold text-civic-ink">Recent Activity</h4>
+            <div className="mt-3 space-y-2">
+              {recentActivity.map((log) => (
+                <div key={`${log.action}-${log.id}`} className="rounded-lg bg-civic-field p-3">
+                  <p className="text-sm font-bold text-civic-ink">{log.summary}</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">{humanize(log.action)} | {formatDate(log.createdAt)}</p>
+                </div>
+              ))}
+              {recentActivity.length === 0 ? <p className="rounded-lg bg-civic-field p-3 text-sm font-semibold text-slate-600">No user activity recorded yet.</p> : null}
+            </div>
+          </section>
+        </section>
+      </div>
     );
   }
 
@@ -927,16 +1448,97 @@ export function AdminPage() {
               />
 
               {selectedReport.imageUrl ? (
-                <img src={selectedReport.imageUrl} alt={selectedReport.title} className="max-h-80 w-full rounded-lg border border-civic-line object-cover" />
+                <div className="rounded-lg border border-civic-line bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-bold text-civic-ink">Photo evidence</p>
+                    <a className="text-xs font-bold text-civic-green hover:underline" href={selectedReport.imageUrl} rel="noreferrer" target="_blank">
+                      Open full photo
+                    </a>
+                  </div>
+                  <img src={selectedReport.imageUrl} alt={selectedReport.title} className="mt-3 max-h-80 w-full rounded-lg object-cover" />
+                </div>
               ) : (
                 <p className="rounded-lg bg-civic-field p-4 text-sm font-semibold text-slate-600">No photo attached to this report.</p>
               )}
 
               <StatusTimeline status={selectedReport.status} />
+
+              <section className="rounded-lg border border-civic-line bg-white p-4">
+                <h4 className="text-base font-bold text-civic-ink">Internal Moderation</h4>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Review flag
+                    <select className="h-10 rounded-lg border border-civic-line bg-white px-3 text-sm font-bold normal-case text-civic-ink" onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, reviewFlag: event.target.value as ReportReviewFlag }))} value={reportAdminDraft.reviewFlag}>
+                      {reviewFlags.map((flag) => <option key={flag} value={flag}>{humanize(flag)}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Duplicate of
+                    <select className="h-10 rounded-lg border border-civic-line bg-white px-3 text-sm font-bold normal-case text-civic-ink" onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, duplicateOfReportId: event.target.value }))} value={reportAdminDraft.duplicateOfReportId}>
+                      <option value="">No duplicate link</option>
+                      {displayReports.filter((report) => report.id !== selectedReport.id).map((report) => (
+                        <option key={report.id} value={report.id}>{report.id} - {report.title}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label className="mt-3 grid gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Internal reason
+                  <textarea
+                    className="min-h-24 rounded-lg border border-civic-line p-3 text-sm font-semibold normal-case text-civic-ink outline-none focus:border-civic-green focus:ring-2 focus:ring-emerald-100"
+                    onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, moderationReason: event.target.value }))}
+                    placeholder="Why this was marked duplicate, spam, invalid, or needs follow-up"
+                    value={reportAdminDraft.moderationReason}
+                  />
+                </label>
+              </section>
+
+              <section className="rounded-lg border border-civic-line bg-white p-4">
+                <h4 className="text-base font-bold text-civic-ink">LGU Assignment Workflow</h4>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    LGU
+                    <select className="h-10 rounded-lg border border-civic-line bg-white px-3 text-sm font-bold normal-case text-civic-ink" onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, assignedLguId: event.target.value }))} value={reportAdminDraft.assignedLguId}>
+                      <option value="">No LGU</option>
+                      {lgus.map((lgu) => <option key={lgu.id} value={lgu.id}>{lgu.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Department
+                    <select className="h-10 rounded-lg border border-civic-line bg-white px-3 text-sm font-bold normal-case text-civic-ink" onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, assignedDepartment: event.target.value }))} value={reportAdminDraft.assignedDepartment}>
+                      <option value="">No department</option>
+                      {departments.map((department) => <option key={department} value={department}>{department}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Staff / focal person
+                    <input className="h-10 rounded-lg border border-civic-line px-3 text-sm font-bold normal-case text-civic-ink" onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, assignedStaff: event.target.value }))} placeholder="Name or email" value={reportAdminDraft.assignedStaff} />
+                  </label>
+                  <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    SLA deadline
+                    <input className="h-10 rounded-lg border border-civic-line px-3 text-sm font-bold normal-case text-civic-ink" onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, slaDueAt: event.target.value }))} type="datetime-local" value={reportAdminDraft.slaDueAt} />
+                  </label>
+                </div>
+                <label className="mt-3 grid gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Response note
+                  <textarea
+                    className="min-h-24 rounded-lg border border-civic-line p-3 text-sm font-semibold normal-case text-civic-ink outline-none focus:border-civic-green focus:ring-2 focus:ring-emerald-100"
+                    onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, responseNote: event.target.value }))}
+                    placeholder="Internal LGU/staff response or next action"
+                    value={reportAdminDraft.responseNote}
+                  />
+                </label>
+                <button className="mt-3 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-civic-green px-4 text-sm font-bold text-white hover:bg-emerald-700" onClick={handleSaveReportAdminDraft} type="button">
+                  <Save size={17} aria-hidden="true" />
+                  Save admin review
+                </button>
+              </section>
             </div>
           </section>
         </div>
       ) : null}
+
+      {renderSelectedUserDrawer()}
 
       {pendingAction ? (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-950/45 px-4" role="presentation" onMouseDown={() => !pendingActionLoading && setPendingAction(null)}>

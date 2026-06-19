@@ -72,7 +72,7 @@ function NavigationLink({ to, label, icon: Icon, end = false, mobile = false, on
 }
 
 export function AppShell() {
-  const { user, logout } = useAuth();
+  const { isSuperAdmin, user, logout } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
@@ -145,6 +145,7 @@ export function AppShell() {
       ]
     : navItems;
   const isAdminRoute = location.pathname.startsWith("/admin");
+  const showAdminShell = isAdminRoute && isSuperAdmin;
 
   function handleLogout() {
     setMobileMenuOpen(false);
@@ -196,7 +197,7 @@ export function AppShell() {
   return (
     <div className="min-h-screen bg-[#eef2ef]">
       <header className="sticky top-0 z-[900] border-b border-civic-line bg-white shadow-sm">
-        {isAdminRoute ? (
+        {showAdminShell ? (
           <div className="mx-auto flex max-w-[96rem] flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white ring-1 ring-civic-line">
@@ -303,7 +304,7 @@ export function AppShell() {
           </div>
         )}
       </header>
-      <main className={`mx-auto px-4 py-5 sm:px-6 lg:px-8 ${isAdminRoute ? "max-w-[96rem]" : "max-w-7xl"}`}>
+      <main className={`mx-auto px-4 py-5 sm:px-6 lg:px-8 ${showAdminShell ? "max-w-[96rem]" : "max-w-7xl"}`}>
         <Outlet />
       </main>
       {showInstallPrompt && !isAdminRoute ? (

@@ -435,8 +435,7 @@ service cloud.firestore {
         && validOptionalCloudinaryImageUrl(request.resource.data)
         && validOptionalCloudinaryPublicId(request.resource.data)
         && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && validReportCreateRateLimit();
+        && request.resource.data.updatedAt == request.time;
     }
 
     function validReportEditableFields() {

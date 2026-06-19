@@ -63,6 +63,24 @@ function formatDistance(meters: number) {
   return `${Math.round(meters)} m away`;
 }
 
+function getSubmitErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Report submission failed.";
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    normalizedMessage.includes("missing or insufficient permissions") ||
+    normalizedMessage.includes("permission-denied")
+  ) {
+    return "Your report could not be saved yet because live report storage is not fully ready. Please contact the administrator.";
+  }
+
+  if (normalizedMessage.includes("database") && normalizedMessage.includes("not found")) {
+    return "Live report storage is not ready yet. Please contact the administrator.";
+  }
+
+  return message;
+}
+
 export function SubmitReportPage() {
   const navigate = useNavigate();
   const { profile, user } = useAuth();
@@ -361,11 +379,11 @@ export function SubmitReportPage() {
         createdBy: user.uid,
         imageUrl: uploadedImage?.imageUrl,
         imagePublicId: uploadedImage?.imagePublicId,
-      });
+    });
       lastSubmitRef.current = Date.now();
       navigate("/");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Report submission failed.");
+      setMessage(getSubmitErrorMessage(error));
     } finally {
       setSubmitting(false);
     }
