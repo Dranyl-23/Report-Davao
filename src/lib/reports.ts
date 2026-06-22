@@ -2,6 +2,7 @@ import {
   Timestamp,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   limit,
   onSnapshot,
@@ -9,7 +10,6 @@ import {
   query,
   runTransaction,
   serverTimestamp,
-  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -62,8 +62,37 @@ interface FirestoreConfirmation {
   createdAt?: Timestamp;
 }
 
+type ReportLimitScope = "hour" | "day";
+
+interface FirestoreReportLimit {
+  count?: number;
+  scope?: ReportLimitScope;
+  uid?: string;
+  windowStart?: Timestamp;
+}
+
 const reportsCollection = collection(db, "reports");
 const confirmationsCollection = collection(db, "upvotes");
+const privateReportFieldNames = [
+  "assignedAt",
+  "assignedDepartment",
+  "assignedLguId",
+  "assignedStaff",
+  "duplicateOfReportId",
+  "moderationReason",
+  "responseNote",
+  "reviewFlag",
+  "slaDueAt",
+];
+
+const reportLimitConfigs: Array<{
+  maxReports: number;
+  scope: ReportLimitScope;
+  windowMs: number;
+}> = [
+  { maxReports: 5, scope: "hour", windowMs: 60 * 60 * 1000 },
+  { maxReports: 20, scope: "day", windowMs: 24 * 60 * 60 * 1000 },
+];
 
 function toCivicReport(id: string, data: FirestoreReport): CivicReport {
   return {
@@ -153,6 +182,10 @@ export function listenToConfirmations(
 
 export async function createReport(report: NewCivicReport) {
   const reportRef = doc(reportsCollection);
+  const reportLimitRefs = reportLimitConfigs.map((config) => ({
+    ...config,
+    ref: doc(db, "users", report.createdBy, "reportLimits", config.scope),
+  }));
   const reportData: Record<string, unknown> = {
     title: report.title.trim(),
     category: report.category,
@@ -175,7 +208,71 @@ export async function createReport(report: NewCivicReport) {
     reportData.imagePublicId = report.imagePublicId;
   }
 
-  await setDoc(reportRef, reportData);
+  await runTransaction(db, async (transaction) => {
+    const limitSnapshots = await Promise.all(
+      reportLimitRefs.map((limitConfig) => transaction.get(limitConfig.ref)),
+    );
+    const nowMs = Date.now();
+
+    transaction.set(reportRef, reportData);
+
+    reportLimitRefs.forEach((limitConfig, index) => {
+      transaction.set(
+        limitConfig.ref,
+        getNextReportLimitData(
+          limitSnapshots[index].data() as FirestoreReportLimit | undefined,
+          report.createdBy,
+          limitConfig.scope,
+          limitConfig.maxReports,
+          limitConfig.windowMs,
+          nowMs,
+        ),
+      );
+    });
+  });
+}
+
+function getNextReportLimitData(
+  currentLimit: FirestoreReportLimit | undefined,
+  userId: string,
+  scope: ReportLimitScope,
+  maxReports: number,
+  windowMs: number,
+  nowMs: number,
+) {
+  const windowStart = currentLimit?.windowStart;
+  const currentCount = currentLimit?.count ?? 0;
+  const isCurrentWindow =
+    windowStart instanceof Timestamp &&
+    currentLimit?.uid === userId &&
+    currentLimit.scope === scope &&
+    nowMs - windowStart.toMillis() < windowMs;
+
+  if (isCurrentWindow) {
+    if (currentCount >= maxReports) {
+      throw new Error(
+        scope === "hour"
+          ? "You have reached the hourly report limit. Please try again later."
+          : "You have reached the daily report limit. Please try again tomorrow.",
+      );
+    }
+
+    return {
+      uid: userId,
+      scope,
+      windowStart,
+      count: currentCount + 1,
+      updatedAt: serverTimestamp(),
+    };
+  }
+
+  return {
+    uid: userId,
+    scope,
+    windowStart: serverTimestamp(),
+    count: 1,
+    updatedAt: serverTimestamp(),
+  };
 }
 
 export async function confirmReport(reportId: string, userId: string) {
@@ -259,25 +356,38 @@ export async function updateReportAdminFields(
   const reportUpdate: Record<string, unknown> = {
     updatedAt: serverTimestamp(),
   };
+  const privateReportUpdate: Record<string, unknown> = {
+    updatedAt: serverTimestamp(),
+    updatedBy: currentUser.uid,
+  };
+  let hasPrivateReportUpdate = false;
+
+  privateReportFieldNames.forEach((fieldName) => {
+    reportUpdate[fieldName] = deleteField();
+  });
 
   if (fields.status) {
     reportUpdate.status = fields.status;
   }
 
   if (fields.reviewFlag) {
-    reportUpdate.reviewFlag = fields.reviewFlag;
+    privateReportUpdate.reviewFlag = fields.reviewFlag;
+    hasPrivateReportUpdate = true;
   }
 
   if (fields.assignedLguId !== undefined) {
-    reportUpdate.assignedLguId = fields.assignedLguId;
+    privateReportUpdate.assignedLguId = fields.assignedLguId;
+    hasPrivateReportUpdate = true;
   }
 
   if (fields.assignedDepartment !== undefined) {
-    reportUpdate.assignedDepartment = fields.assignedDepartment;
+    privateReportUpdate.assignedDepartment = fields.assignedDepartment;
+    hasPrivateReportUpdate = true;
   }
 
   if (fields.assignedStaff !== undefined) {
-    reportUpdate.assignedStaff = fields.assignedStaff;
+    privateReportUpdate.assignedStaff = fields.assignedStaff;
+    hasPrivateReportUpdate = true;
   }
 
   if (
@@ -285,26 +395,34 @@ export async function updateReportAdminFields(
     fields.assignedDepartment !== undefined ||
     fields.assignedStaff !== undefined
   ) {
-    reportUpdate.assignedAt = serverTimestamp();
+    privateReportUpdate.assignedAt = serverTimestamp();
   }
 
   if (fields.duplicateOfReportId !== undefined) {
-    reportUpdate.duplicateOfReportId = fields.duplicateOfReportId;
+    privateReportUpdate.duplicateOfReportId = fields.duplicateOfReportId;
+    hasPrivateReportUpdate = true;
   }
 
   if (fields.moderationReason !== undefined) {
-    reportUpdate.moderationReason = fields.moderationReason;
+    privateReportUpdate.moderationReason = fields.moderationReason;
+    hasPrivateReportUpdate = true;
   }
 
   if (fields.responseNote !== undefined) {
-    reportUpdate.responseNote = fields.responseNote;
+    privateReportUpdate.responseNote = fields.responseNote;
+    hasPrivateReportUpdate = true;
   }
 
   if (fields.slaDueAt !== undefined) {
-    reportUpdate.slaDueAt = fields.slaDueAt;
+    privateReportUpdate.slaDueAt = fields.slaDueAt;
+    hasPrivateReportUpdate = true;
   }
 
   batch.update(doc(db, "reports", reportId), reportUpdate);
+
+  if (hasPrivateReportUpdate) {
+    batch.set(doc(db, "reportAdmin", reportId), privateReportUpdate, { merge: true });
+  }
 
   if (fields.status) {
     const statusLogRef = doc(collection(db, "statusLogs"));

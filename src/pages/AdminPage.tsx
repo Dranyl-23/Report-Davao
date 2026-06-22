@@ -28,6 +28,7 @@ import {
   listenToAdminUsers,
   listenToAuditLogs,
   listenToLgus,
+  listenToReportAdminDetails,
   listenToStatusLogs,
   listenToSystemSettings,
   listenToWorkflowSettings,
@@ -42,6 +43,7 @@ import {
   type LguAccountDraft,
   type LguPlan,
   type LguStatus,
+  type ReportAdminDetails,
   type SystemSettings,
   type WorkflowSettings,
 } from "../lib/admin";
@@ -210,6 +212,7 @@ export function AdminPage() {
   const [adminUsers, setAdminUsers] = useState<AdminUserProfile[]>([]);
   const [lgus, setLgus] = useState<LguAccount[]>([]);
   const [confirmations, setConfirmations] = useState<AdminConfirmation[]>([]);
+  const [reportAdminDetails, setReportAdminDetails] = useState<ReportAdminDetails[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [statusLogs, setStatusLogs] = useState<AuditLog[]>([]);
   const [systemSettings, setSystemSettings] = useState<SystemSettings>(defaultSystemSettings);
@@ -251,6 +254,7 @@ export function AdminPage() {
     const unsubUsers = listenToAdminUsers(setAdminUsers, pushError);
     const unsubLgus = listenToLgus(setLgus, pushError);
     const unsubConfirmations = listenToAdminConfirmations(setConfirmations, pushError);
+    const unsubReportAdminDetails = listenToReportAdminDetails(setReportAdminDetails, pushError);
     const unsubAudit = listenToAuditLogs(setAuditLogs, pushError);
     const unsubStatus = listenToStatusLogs(setStatusLogs, pushError);
     const unsubSystem = listenToSystemSettings((settings) => {
@@ -267,6 +271,7 @@ export function AdminPage() {
       unsubUsers();
       unsubLgus();
       unsubConfirmations();
+      unsubReportAdminDetails();
       unsubAudit();
       unsubStatus();
       unsubSystem();
@@ -300,10 +305,24 @@ export function AdminPage() {
     });
   }, [selectedReport]);
 
+  const reportAdminDetailsById = useMemo(() => {
+    return reportAdminDetails.reduce<Record<string, ReportAdminDetails>>((detailsById, details) => {
+      detailsById[details.id] = details;
+      return detailsById;
+    }, {});
+  }, [reportAdminDetails]);
+
+  const adminReports = useMemo(() => {
+    return displayReports.map((report) => ({
+      ...report,
+      ...reportAdminDetailsById[report.id],
+    }));
+  }, [displayReports, reportAdminDetailsById]);
+
   const filteredReports = useMemo(() => {
     const normalizedSearch = normalize(reportSearch);
 
-    return displayReports.filter((report) => {
+    return adminReports.filter((report) => {
       const matchesSearch =
         normalizedSearch.length === 0 ||
         normalize(`${report.title} ${report.description} ${report.barangay} ${report.category}`).includes(normalizedSearch);
@@ -314,7 +333,7 @@ export function AdminPage() {
 
       return matchesSearch && matchesStatus && matchesCategory && matchesArea && matchesDate;
     });
-  }, [displayReports, reportAreaFilter, reportCategoryFilter, reportDateFilter, reportSearch, reportStatusFilter]);
+  }, [adminReports, reportAreaFilter, reportCategoryFilter, reportDateFilter, reportSearch, reportStatusFilter]);
 
   const filteredUsers = useMemo(() => {
     const normalizedSearch = normalize(userSearch);
@@ -352,7 +371,7 @@ export function AdminPage() {
   }, [allAuditLogs, auditActionFilter, auditSearch]);
 
   const reportsByUser = useMemo(() => {
-    return displayReports.reduce<Record<string, CivicReport[]>>((groups, report) => {
+    return adminReports.reduce<Record<string, CivicReport[]>>((groups, report) => {
       if (!report.createdBy) {
         return groups;
       }
@@ -362,7 +381,7 @@ export function AdminPage() {
       groups[report.createdBy] = userReports;
       return groups;
     }, {});
-  }, [displayReports]);
+  }, [adminReports]);
 
   const confirmationsByUser = useMemo(() => {
     return confirmations.reduce<Record<string, AdminConfirmation[]>>((groups, confirmation) => {
@@ -384,12 +403,12 @@ export function AdminPage() {
   const reportStats = useMemo(() => {
     return {
       total: displayReports.length,
-      submitted: displayReports.filter((report) => report.status === "submitted").length,
-      review: displayReports.filter((report) => report.status === "under-review").length,
-      progress: displayReports.filter((report) => report.status === "in-progress").length,
-      resolved: displayReports.filter((report) => report.status === "resolved").length,
+      submitted: adminReports.filter((report) => report.status === "submitted").length,
+      review: adminReports.filter((report) => report.status === "under-review").length,
+      progress: adminReports.filter((report) => report.status === "in-progress").length,
+      resolved: adminReports.filter((report) => report.status === "resolved").length,
     };
-  }, [displayReports]);
+  }, [adminReports, displayReports.length]);
 
   async function handleReportUpdate(report: CivicReport, fields: Parameters<typeof updateReportAdminFields>[1], summary: string) {
     setActionMessage("");
@@ -1476,7 +1495,7 @@ export function AdminPage() {
                     Duplicate of
                     <select className="h-10 rounded-lg border border-civic-line bg-white px-3 text-sm font-bold normal-case text-civic-ink" onChange={(event) => setReportAdminDraft((draft) => ({ ...draft, duplicateOfReportId: event.target.value }))} value={reportAdminDraft.duplicateOfReportId}>
                       <option value="">No duplicate link</option>
-                      {displayReports.filter((report) => report.id !== selectedReport.id).map((report) => (
+                      {adminReports.filter((report) => report.id !== selectedReport.id).map((report) => (
                         <option key={report.id} value={report.id}>{report.id} - {report.title}</option>
                       ))}
                     </select>

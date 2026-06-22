@@ -4,14 +4,14 @@
 
 - Firebase Authentication is required before a citizen can submit a report.
 - New users are created with `role: citizen` in `users/{uid}`.
-- Admin pages require an authenticated user profile with `role: admin`.
+- Admin pages require an active authenticated user with the `superAdmin` custom claim, `role: super-admin` custom claim, or a `users/{uid}.role` value of `super-admin`.
 - Firestore rules validate report fields before accepting writes.
 - Citizens can only create reports as themselves.
 - Citizens can confirm other users' reports once, and confirmation docs are only readable by the confirming user.
 - Citizens can edit or delete their own reports only while the report is still `submitted`.
 - Report status updates are admin-only.
 - Public report reads are allowed for the transparency map/stats, but reports must not store private contact details.
-- Photo upload currently uses Cloudinary unsigned uploads for MVP evidence images.
+- Photo upload uses signed Cloudinary uploads via the `getCloudinarySignature` callable.
 - Storage upload rules are prepared, but Firebase Storage upload is paused until Firebase Storage is available.
 
 ## Firestore Collections
@@ -23,9 +23,11 @@ Stores user profile and role.
 Allowed roles:
 
 - `citizen`
-- `admin`
+- `staff`
+- `lgu-admin`
+- `super-admin`
 
-Only trusted project owners should promote an account to admin.
+Only trusted project owners should promote an account to `super-admin`.
 
 ### `reports/{reportId}`
 
@@ -78,13 +80,12 @@ Allowed citizen-created fields:
 The document ID must be `{reportId}_{uid}` so each user can confirm a report only once. Users cannot confirm reports they created.
 Public confirmation totals are stored on `reports/{reportId}.upvotes`; individual confirmation records are not publicly listed.
 
-## How To Promote An Admin
+## How To Promote A Super Admin
 
 1. Create/login with the LGU or barangay staff account once.
-2. Go to Firebase Console > Firestore.
-3. Open `users/{uid}` for that account.
-4. Change `role` from `citizen` to `admin`.
-5. Keep normal resident accounts as `citizen`.
+2. Prefer granting the `superAdmin` custom claim through the `setSuperAdminClaim` callable from an owner email listed in `SUPER_ADMIN_EMAILS`.
+3. If using Firestore as a fallback during setup, open `users/{uid}` for that account and change `role` from `citizen` to `super-admin`.
+4. Keep normal resident accounts as `citizen`.
 
 ## Firebase Console Setup
 
@@ -107,5 +108,5 @@ For a class demo, using Firebase Console is fine:
 - API keys in Firebase web apps are not secrets; security depends on Auth, rules, and allowed domains.
 - The app does not publicly expose emails, phone numbers, or user contact details in reports.
 - Photos should be moderated later because they may contain faces, house numbers, or license plates.
-- Cloudinary unsigned upload presets should be locked down by file type, size, and folder. Rotate the preset if it is exposed or abused.
+- Cloudinary uploads should stay signed through Firebase Functions. Rotate `CLOUDINARY_API_SECRET` if it is exposed or abused.
 - Admin role assignment should be controlled manually during MVP/pilot stage.

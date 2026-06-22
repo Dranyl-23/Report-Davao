@@ -23,7 +23,7 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return signedIn()
+      return userIsActive()
         && (
           request.auth.token.superAdmin == true
           || request.auth.token.role == "super-admin"
@@ -56,13 +56,14 @@ service cloud.firestore {
       return !data.keys().hasAny(["imageUrl"])
         || (data.imageUrl is string
           && data.imageUrl.size() <= 1500
-          && data.imageUrl.matches("^https://res\\.cloudinary\\.com/.+/image/upload/.*"));
+          && data.imageUrl.matches("^https://res\\.cloudinary\\.com/dh0xm7zdj/image/upload/.*"));
     }
 
     function validOptionalCloudinaryPublicId(data) {
       return !data.keys().hasAny(["imagePublicId"])
         || (data.imagePublicId is string
-          && data.imagePublicId.size() <= 255);
+          && data.imagePublicId.size() <= 255
+          && data.imagePublicId.matches("^report-photos/" + request.auth.uid + "/[A-Za-z0-9_./-]+$"));
     }
 
     function validOptionalCloudinaryPhotoUrl(data) {
@@ -198,7 +199,45 @@ service cloud.firestore {
         && validOptionalString(data.moderationReason, 500)
         && validOptionalString(data.responseNote, 800)
         && validOptionalString(data.slaDueAt, 40)
-        && (!data.keys().hasAny(["assignedAt"]) || data.assignedAt == request.time);
+        && (!data.keys().hasAny(["assignedAt"]) || data.assignedAt is timestamp);
+    }
+
+    function hasPrivateReportFields(data) {
+      return data.keys().hasAny([
+        "assignedAt",
+        "assignedDepartment",
+        "assignedLguId",
+        "assignedStaff",
+        "duplicateOfReportId",
+        "moderationReason",
+        "responseNote",
+        "reviewFlag",
+        "slaDueAt"
+      ]);
+    }
+
+    function validReportAdminData(data) {
+      return data.keys().hasAll([
+          "updatedAt",
+          "updatedBy"
+        ])
+        && data.keys().hasOnly([
+          "assignedAt",
+          "assignedDepartment",
+          "assignedLguId",
+          "assignedStaff",
+          "duplicateOfReportId",
+          "moderationReason",
+          "responseNote",
+          "reviewFlag",
+          "slaDueAt",
+          "updatedAt",
+          "updatedBy"
+        ])
+        && validOptionalReviewFlag(data)
+        && validOptionalAssignmentFields(data)
+        && data.updatedAt == request.time
+        && data.updatedBy == request.auth.uid;
     }
 
     function validLguPlan(plan) {
@@ -535,8 +574,8 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      allow read: if true;
-      allow create: if userIsActive() && validReportData();
+      allow read: if !hasPrivateReportFields(resource.data) || isSuperAdmin();
+      allow create: if userIsActive() && validReportData() && validReportCreateRateLimit();
       allow update: if (isSuperAdmin()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             "status",
@@ -551,9 +590,8 @@ service cloud.firestore {
             "slaDueAt",
             "updatedAt"
           ])
+          && !hasPrivateReportFields(request.resource.data)
           && validStatus(request.resource.data.status)
-          && validOptionalReviewFlag(request.resource.data)
-          && validOptionalAssignmentFields(request.resource.data)
           && request.resource.data.updatedAt == request.time)
         || (userIsActive()
           && resource.data.createdBy == request.auth.uid
@@ -573,6 +611,14 @@ service cloud.firestore {
         || (userIsActive()
           && resource.data.createdBy == request.auth.uid
           && resource.data.status == "submitted");
+    }
+
+    match /reportAdmin/{reportId} {
+      allow read: if isSuperAdmin();
+      allow create, update: if isSuperAdmin()
+        && exists(reportPath(reportId))
+        && validReportAdminData(request.resource.data);
+      allow delete: if false;
     }
 
     match /statusLogs/{logId} {

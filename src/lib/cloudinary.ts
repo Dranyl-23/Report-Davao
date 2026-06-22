@@ -1,5 +1,15 @@
+import { httpsCallable } from "firebase/functions";
+import { functions } from "./firebase";
+
 const maxImageSizeBytes = 5 * 1024 * 1024;
 const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
+
+interface CloudinarySignatureResponse {
+  apiKey?: string;
+  folder?: string;
+  signature?: string;
+  timestamp?: number;
+}
 
 interface CloudinaryUploadResponse {
   secure_url?: string;
@@ -36,17 +46,29 @@ export async function uploadImageToCloudinary(file: File): Promise<UploadedImage
   }
 
   const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string | undefined;
-  const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
 
-  if (!cloudName || !uploadPreset) {
+  if (!cloudName) {
     throw new Error(
-      "Cloudinary is not configured. Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET to .env.",
+      "Cloudinary is not configured. Add VITE_CLOUDINARY_CLOUD_NAME to .env.",
     );
+  }
+
+  const signatureResponse = await httpsCallable<unknown, CloudinarySignatureResponse>(
+    functions,
+    "getCloudinarySignature",
+  )({});
+  const { apiKey, folder, signature, timestamp } = signatureResponse.data;
+
+  if (!apiKey || !folder || !signature || !timestamp) {
+    throw new Error("Cloudinary upload signing is not configured. Contact the administrator.");
   }
 
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("upload_preset", uploadPreset);
+  formData.append("api_key", apiKey);
+  formData.append("folder", folder);
+  formData.append("signature", signature);
+  formData.append("timestamp", String(timestamp));
 
   const response = await fetch(
     `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,

@@ -1,19 +1,33 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { defineString } from "firebase-functions/params";
+import { defineSecret, defineString } from "firebase-functions/params";
 import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { getFirestore } from "firebase-admin/firestore";
 import * as crypto from "crypto";
 
 initializeApp();
 
-const cloudinaryApiSecret = defineString("CLOUDINARY_API_SECRET");
+const cloudinaryApiKey = defineSecret("CLOUDINARY_API_KEY");
+const cloudinaryApiSecret = defineSecret("CLOUDINARY_API_SECRET");
 const superAdminEmails = defineString("SUPER_ADMIN_EMAILS");
+
+async function assertCallerIsActive(uid: string) {
+  const callerProfile = await getFirestore().doc(`users/${uid}`).get();
+
+  if (callerProfile.exists && callerProfile.get("disabled") === true) {
+    throw new HttpsError(
+      "permission-denied",
+      "This account is restricted. Contact the Report Davao administrator.",
+    );
+  }
+}
 
 export const getCloudinarySignature = onCall(
   {
     region: "asia-southeast1",
+    secrets: [cloudinaryApiKey, cloudinaryApiSecret],
   },
-  (request) => {
+  async (request) => {
     if (!request.auth) {
       throw new HttpsError(
         "unauthenticated",
@@ -21,9 +35,12 @@ export const getCloudinarySignature = onCall(
       );
     }
 
+    await assertCallerIsActive(request.auth.uid);
+
+    const apiKey = cloudinaryApiKey.value();
     const apiSecret = cloudinaryApiSecret.value();
 
-    if (!apiSecret) {
+    if (!apiKey || !apiSecret) {
       throw new HttpsError(
         "internal",
         "Cloudinary is not configured on the server. Contact the administrator.",
@@ -31,14 +48,14 @@ export const getCloudinarySignature = onCall(
     }
 
     const timestamp = Math.round(Date.now() / 1000);
-    const folder = "report-photos";
+    const folder = `report-photos/${request.auth.uid}`;
     const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
     const signature = crypto
       .createHash("sha1")
       .update(`${paramsToSign}${apiSecret}`)
       .digest("hex");
 
-    return { signature, timestamp, folder };
+    return { apiKey, signature, timestamp, folder };
   },
 );
 
@@ -50,6 +67,8 @@ export const setSuperAdminClaim = onCall(
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must be signed in.");
     }
+
+    await assertCallerIsActive(request.auth.uid);
 
     const allowedOwnerEmails = superAdminEmails
       .value()

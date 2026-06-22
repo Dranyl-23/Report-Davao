@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type { UserProfile, UserRole } from "./auth";
+import type { ReportReviewFlag } from "../types/report";
 
 export type LguPlan = "free-pilot" | "basic" | "pro" | "premium";
 export type LguStatus = "pilot" | "active" | "paused";
@@ -28,6 +29,21 @@ export interface AdminConfirmation {
   reportId: string;
   userId: string;
   createdAt?: string;
+}
+
+export interface ReportAdminDetails {
+  id: string;
+  assignedAt?: string;
+  assignedDepartment?: string;
+  assignedLguId?: string;
+  assignedStaff?: string;
+  duplicateOfReportId?: string;
+  moderationReason?: string;
+  responseNote?: string;
+  reviewFlag?: ReportReviewFlag;
+  slaDueAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface LguAccount {
@@ -140,6 +156,26 @@ function toAdminConfirmation(id: string, data: Partial<AdminConfirmation> & { cr
   };
 }
 
+function toReportAdminDetails(
+  id: string,
+  data: Partial<ReportAdminDetails> & { assignedAt?: Timestamp; updatedAt?: Timestamp },
+): ReportAdminDetails {
+  return {
+    id,
+    assignedAt: timestampToIso(data.assignedAt),
+    assignedDepartment: data.assignedDepartment,
+    assignedLguId: data.assignedLguId,
+    assignedStaff: data.assignedStaff,
+    duplicateOfReportId: data.duplicateOfReportId,
+    moderationReason: data.moderationReason,
+    responseNote: data.responseNote,
+    reviewFlag: data.reviewFlag ?? "active",
+    slaDueAt: data.slaDueAt,
+    updatedAt: timestampToIso(data.updatedAt),
+    updatedBy: data.updatedBy,
+  };
+}
+
 function toLguAccount(id: string, data: Partial<LguAccount>): LguAccount {
   return {
     id,
@@ -220,6 +256,26 @@ export function listenToAdminConfirmations(
             toAdminConfirmation(confirmationDoc.id, confirmationDoc.data() as Partial<AdminConfirmation> & { createdAt?: Timestamp }),
           )
           .filter((confirmation): confirmation is AdminConfirmation => confirmation !== null),
+      );
+    },
+    (error) => onError(error.message),
+  );
+}
+
+export function listenToReportAdminDetails(
+  onDetails: (details: ReportAdminDetails[]) => void,
+  onError: (message: string) => void,
+) {
+  return onSnapshot(
+    query(collection(db, "reportAdmin"), limit(500)),
+    (snapshot) => {
+      onDetails(
+        snapshot.docs.map((detailsDoc) =>
+          toReportAdminDetails(
+            detailsDoc.id,
+            detailsDoc.data() as Partial<ReportAdminDetails> & { assignedAt?: Timestamp; updatedAt?: Timestamp },
+          ),
+        ),
       );
     },
     (error) => onError(error.message),
